@@ -136,6 +136,7 @@ class TestCommandBuilding:
 
         assert cmd[0] == "claude"
         assert "--print" in cmd
+        assert "--verbose" in cmd  # Required for stream-json output
         assert "--output-format" in cmd
         assert "stream-json" in cmd
         assert "--model" in cmd

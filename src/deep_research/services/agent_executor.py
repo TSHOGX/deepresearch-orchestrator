@@ -1,16 +1,20 @@
 """Claude CLI executor for running Claude Code agents."""
 
 import asyncio
+import inspect
 import json
 import logging
 import uuid
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import AsyncIterator, Callable
+from typing import AsyncIterator, Awaitable, Callable, Union
 
 from deep_research.config import get_settings
 
 logger = logging.getLogger(__name__)
+
+# Type for callback that can be sync or async
+MessageCallback = Callable[["StreamMessage"], Union[None, Awaitable[None]]]
 
 
 class MessageType(Enum):
@@ -83,6 +87,7 @@ class ClaudeExecutor:
         cmd = [
             "claude",
             "--print",
+            "--verbose",
             "--output-format",
             "stream-json",
             "--model",
@@ -175,14 +180,14 @@ class ClaudeExecutor:
         self,
         prompt: str,
         system_prompt: str | None = None,
-        on_message: Callable[[StreamMessage], None] | None = None,
+        on_message: MessageCallback | None = None,
     ) -> ExecutionResult:
         """Execute a Claude CLI command.
 
         Args:
             prompt: The prompt to send to Claude.
             system_prompt: Optional system prompt.
-            on_message: Optional callback for each streamed message.
+            on_message: Optional callback for each streamed message (can be sync or async).
 
         Returns:
             ExecutionResult with success status and content.
@@ -218,7 +223,10 @@ class ClaudeExecutor:
                         if message.content:
                             content_parts.append(message.content)
                         if on_message:
-                            on_message(message)
+                            # Handle both sync and async callbacks
+                            result = on_message(message)
+                            if inspect.isawaitable(result):
+                                await result
 
             try:
                 await asyncio.wait_for(read_stream(), timeout=self.timeout)

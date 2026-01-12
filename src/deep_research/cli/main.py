@@ -2,6 +2,7 @@
 
 import argparse
 import asyncio
+import json as json_lib
 import logging
 import sys
 from pathlib import Path
@@ -30,39 +31,97 @@ console = Console()
 logger = logging.getLogger(__name__)
 
 
-async def run_interactive_research(query: str, auto_confirm: bool = False) -> None:
+async def run_interactive_research(
+    query: str,
+    auto_confirm: bool = False,
+    batch_mode: bool = False,
+    output_file: str | None = None,
+    json_output: bool = False,
+) -> int:
     """Run an interactive research session.
 
     Args:
         query: The research query.
         auto_confirm: If True, automatically confirm the plan.
+        batch_mode: If True, run in non-interactive batch mode.
+        output_file: Output file path for the report.
+        json_output: If True, output results in JSON format.
+
+    Returns:
+        Exit code (0 for success, non-zero for failure).
     """
+    import time
+
+    start_time = time.time()
     settings = get_settings()
     settings.ensure_directories()
 
     orchestrator = ResearchOrchestrator()
-    progress_display = ProgressDisplay(console)
-    report_display = ReportDisplay(console)
-    status_display = StatusDisplay(console)
-    plan_display = PlanDisplay(console)
-
     event_bus = get_event_bus()
+
+    # In batch mode, force auto_confirm and use simple output
+    if batch_mode:
+        auto_confirm = True
+
+    # Helper for output (batch mode uses simple print, otherwise Rich)
+    # In JSON mode, progress goes to stderr to keep stdout clean for JSON
+    def log_info(msg: str) -> None:
+        if json_output:
+            print(f"[INFO] {msg}", file=sys.stderr, flush=True)
+        elif batch_mode:
+            print(f"[INFO] {msg}", flush=True)
+        else:
+            console.print(f"[bold blue]{msg}[/bold blue]")
+
+    def log_phase(phase: str, msg: str) -> None:
+        if json_output:
+            print(f"[{phase}] {msg}", file=sys.stderr, flush=True)
+        elif batch_mode:
+            print(f"[{phase}] {msg}", flush=True)
+        else:
+            console.print(f"[yellow]{phase}:[/yellow] {msg}")
+
+    def log_error(msg: str) -> None:
+        # Errors always go to stderr
+        if batch_mode or json_output:
+            print(f"[ERROR] {msg}", file=sys.stderr, flush=True)
+        else:
+            console.print(f"[red]{msg}[/red]")
+
+    # Initialize display components (only used in non-batch mode)
+    progress_display = None
+    report_display = None
+    status_display = None
+    plan_display = None
+
+    if not batch_mode:
+        progress_display = ProgressDisplay(console)
+        report_display = ReportDisplay(console)
+        status_display = StatusDisplay(console)
+        plan_display = PlanDisplay(console)
 
     try:
         # Start research
-        console.print("\n[bold blue]Starting research...[/bold blue]\n")
+        log_info("Starting research...")
         session = await orchestrator.start_research(query)
 
         # Planning phase
-        console.print("[yellow]Phase 1:[/yellow] Planning research strategy...")
+        log_phase("Phase 1", "Planning research strategy...")
         await orchestrator.run_planning_phase(session)
 
         if session.plan is None:
-            console.print("[red]Failed to create research plan[/red]")
-            return
+            log_error("Failed to create research plan")
+            return 1
 
         # Show plan and get confirmation
-        console.print(plan_display.render_plan(session.plan))
+        if not batch_mode and plan_display:
+            console.print(plan_display.render_plan(session.plan))
+        else:
+            # Batch/JSON mode: output plan info to stderr
+            out = sys.stderr if json_output else sys.stdout
+            print(f"\n[PLAN] Generated {len(session.plan.plan_items)} research items:", file=out, flush=True)
+            for i, item in enumerate(session.plan.plan_items, 1):
+                print(f"  {i}. {item.topic}", file=out, flush=True)
 
         if not auto_confirm:
             confirmed, skip_indices = prompt_confirm_plan(console, session.plan)
@@ -72,7 +131,7 @@ async def run_interactive_research(query: str, auto_confirm: bool = False) -> No
                 session.update_phase(ResearchPhase.CANCELLED)
                 manager = await get_session_manager()
                 await manager.update_session(session)
-                return
+                return 1
 
             # Apply skips
             if skip_indices:
@@ -88,61 +147,151 @@ async def run_interactive_research(query: str, auto_confirm: bool = False) -> No
             await orchestrator.confirm_plan(session)
 
         # Research phase
-        console.print("\n[yellow]Phase 2:[/yellow] Researching...")
+        log_phase("Phase 2", "Researching...")
 
-        progress_display.start()
+        if not batch_mode and progress_display:
+            progress_display.start()
 
-        # Add agents to progress display
-        for item in session.plan.plan_items:
-            if item.status != "skipped":
-                progress_display.add_agent(f"researcher-{item.id}", item.topic)
+            # Add agents to progress display
+            for item in session.plan.plan_items:
+                if item.status != "skipped":
+                    progress_display.add_agent(f"researcher-{item.id}", item.topic)
 
-        # Subscribe to progress events
-        async def handle_progress(event):
-            if event.event_type == EventType.AGENT_PROGRESS:
-                progress_display.update_agent(event.progress)
-            elif event.event_type == EventType.AGENT_COMPLETED:
-                progress_display.mark_completed(event.result.agent_id)
+            # Subscribe to progress events
+            async def handle_progress(event):
+                if event.event_type == EventType.AGENT_PROGRESS:
+                    progress_display.update_agent(event.progress)
+                elif event.event_type == EventType.AGENT_COMPLETED:
+                    progress_display.mark_completed(event.result.agent_id)
 
-        unsubscribe = event_bus.subscribe_all(handle_progress, session_id=session.session_id)
+            unsubscribe = event_bus.subscribe_all(handle_progress, session_id=session.session_id)
 
-        try:
-            await orchestrator.run_research_phase(session)
-        finally:
-            unsubscribe()
-            progress_display.stop()
+            try:
+                await orchestrator.run_research_phase(session)
+            finally:
+                unsubscribe()
+                progress_display.stop()
+        else:
+            # Batch mode: simple progress logging
+            completed_count = 0
+            total_items = len([i for i in session.plan.plan_items if i.status != "skipped"])
+            out = sys.stderr if json_output else sys.stdout
+
+            async def handle_batch_progress(event):
+                nonlocal completed_count
+                if event.event_type == EventType.AGENT_COMPLETED:
+                    completed_count += 1
+                    print(f"  Progress: {completed_count}/{total_items} agents completed", file=out, flush=True)
+
+            unsubscribe = event_bus.subscribe_all(handle_batch_progress, session_id=session.session_id)
+
+            try:
+                await orchestrator.run_research_phase(session)
+            finally:
+                unsubscribe()
 
         # Synthesis phase
-        console.print("\n[yellow]Phase 3:[/yellow] Synthesizing findings...")
+        log_phase("Phase 3", "Synthesizing findings...")
 
-        with console.status("[bold green]Generating report...[/bold green]"):
+        if not batch_mode:
+            with console.status("[bold green]Generating report...[/bold green]"):
+                await orchestrator.run_synthesis_phase(session)
+        else:
             await orchestrator.run_synthesis_phase(session)
 
-        # Display report
+        # Calculate execution time
+        execution_time = time.time() - start_time
+
+        # Handle output
         if session.final_report:
-            console.print("\n")
-            report_display.render_report(session.final_report)
-
-            # Offer to save
-            save = Prompt.ask(
-                "\n[bold]Save report to file?[/bold]",
-                choices=["y", "n"],
-                default="y",
-            )
-
-            if save == "y":
+            # Determine output filename
+            if output_file:
+                filename = output_file
+            else:
                 filename = f"research_report_{session.session_id[:8]}.md"
-                report_display.save_report(session.final_report, filename)
 
-        console.print("\n[bold green]Research complete![/bold green]")
-        console.print(status_display.render_status(session))
+            if json_output:
+                # JSON output mode - also save report file
+                Path(filename).write_text(session.final_report, encoding="utf-8")
+                print(f"[SAVED] Report saved to: {filename}", file=sys.stderr, flush=True)
+
+                # JSON output mode
+                result = {
+                    "session_id": session.session_id,
+                    "query": query,
+                    "status": session.phase.value,
+                    "plan": {
+                        "plan_items": [
+                            {
+                                "id": item.id,
+                                "topic": item.topic,
+                                "description": item.description,
+                                "status": item.status.value if hasattr(item.status, 'value') else item.status,
+                            }
+                            for item in session.plan.plan_items
+                        ]
+                    } if session.plan else None,
+                    "findings": [
+                        {
+                            "agent_id": result.agent_id,
+                            "topic": result.topic,
+                            "content": result.findings,
+                        }
+                        for result in session.agent_results
+                    ],
+                    "report": session.final_report,
+                    "report_file": filename,
+                    "execution_time_seconds": round(execution_time, 2),
+                    "created_at": session.created_at.isoformat(),
+                }
+                print(json_lib.dumps(result, ensure_ascii=False, indent=2), flush=True)
+                print(f"[COMPLETE] Research finished in {execution_time:.1f}s", file=sys.stderr, flush=True)
+            else:
+                # Display/save report
+                if not batch_mode and report_display:
+                    console.print("\n")
+                    report_display.render_report(session.final_report)
+
+                    # Offer to save
+                    save = Prompt.ask(
+                        "\n[bold]Save report to file?[/bold]",
+                        choices=["y", "n"],
+                        default="y",
+                    )
+
+                    if save == "y":
+                        report_display.save_report(session.final_report, filename)
+                else:
+                    # Batch mode: auto-save
+                    Path(filename).write_text(session.final_report, encoding="utf-8")
+                    print(f"[SAVED] Report saved to: {filename}", flush=True)
+
+            if not batch_mode and not json_output:
+                console.print("\n[bold green]Research complete![/bold green]")
+                if status_display:
+                    console.print(status_display.render_status(session))
+            elif not json_output:
+                print(f"[COMPLETE] Research finished in {execution_time:.1f}s", flush=True)
+
+            return 0
+        else:
+            log_error("No report generated")
+            return 1
 
     except KeyboardInterrupt:
-        console.print("\n[yellow]Research interrupted.[/yellow]")
+        if batch_mode or json_output:
+            print("[INTERRUPTED] Research interrupted by user", file=sys.stderr, flush=True)
+        else:
+            console.print("\n[yellow]Research interrupted.[/yellow]")
         orchestrator.cancel()
+        return 130  # Standard exit code for SIGINT
     except Exception as e:
-        console.print(f"\n[red]Error: {e}[/red]")
+        if batch_mode or json_output:
+            print(f"[ERROR] {e}", file=sys.stderr)
+        else:
+            console.print(f"\n[red]Error: {e}[/red]")
         logger.exception("Research failed")
+        return 1
 
 
 async def resume_session(session_id: str) -> None:
@@ -266,6 +415,23 @@ def main() -> None:
         action="store_true",
         help="Enable verbose logging",
     )
+    parser.add_argument(
+        "--batch",
+        "-b",
+        action="store_true",
+        help="Batch mode: no interactive prompts, auto-save report",
+    )
+    parser.add_argument(
+        "--output",
+        "-o",
+        metavar="FILE",
+        help="Output file for the report (default: auto-generated)",
+    )
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Output results in JSON format (for programmatic use)",
+    )
 
     args = parser.parse_args()
 
@@ -276,25 +442,45 @@ def main() -> None:
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     )
 
-    async def async_main() -> None:
+    async def async_main() -> int:
         if args.list:
             await list_sessions()
+            return 0
         elif args.resume:
             await resume_session(args.resume)
+            return 0
         else:
-            display_welcome(console)
+            # Batch mode validation
+            if args.batch and not args.query:
+                print("[ERROR] Query is required in batch mode", file=sys.stderr)
+                return 1
+
+            # Only show welcome in non-batch mode
+            if not args.batch and not args.json:
+                display_welcome(console)
 
             query = args.query
             if not query:
                 query = Prompt.ask("[bold]Enter your research question[/bold]")
 
             if query.strip():
-                await run_interactive_research(query, auto_confirm=args.auto_confirm)
+                return await run_interactive_research(
+                    query,
+                    auto_confirm=args.auto_confirm,
+                    batch_mode=args.batch,
+                    output_file=args.output,
+                    json_output=args.json,
+                )
             else:
-                console.print("[red]No query provided.[/red]")
+                if args.batch:
+                    print("[ERROR] No query provided", file=sys.stderr)
+                else:
+                    console.print("[red]No query provided.[/red]")
+                return 1
 
     try:
-        asyncio.run(async_main())
+        exit_code = asyncio.run(async_main())
+        sys.exit(exit_code or 0)
     except KeyboardInterrupt:
         console.print("\n[yellow]Goodbye![/yellow]")
         sys.exit(0)

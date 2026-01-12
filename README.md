@@ -40,12 +40,36 @@ deep-research "Your research question"
 # Auto-confirm plan
 deep-research -y "Your research question"
 
+# Batch mode (non-interactive, for automation/testing)
+deep-research -b "Your research question"
+
+# Batch mode with custom output file
+deep-research -b -o report.md "Your research question"
+
+# JSON output (structured data to stdout, progress to stderr)
+deep-research -b --json "Your research question"
+
 # Resume session
 deep-research -r SESSION_ID
 
 # List sessions
 deep-research -l
+
+# Verbose logging
+deep-research -v "Your research question"
 ```
+
+#### CLI Options
+
+| Option | Short | Description |
+|--------|-------|-------------|
+| `--auto-confirm` | `-y` | Automatically confirm the research plan |
+| `--batch` | `-b` | Batch mode: no interactive prompts, auto-save report |
+| `--output FILE` | `-o` | Output file for the report (default: auto-generated) |
+| `--json` | | Output results in JSON format (for programmatic use) |
+| `--resume ID` | `-r` | Resume a previous session |
+| `--list` | `-l` | List recent sessions |
+| `--verbose` | `-v` | Enable verbose logging |
 
 ### API Server
 
