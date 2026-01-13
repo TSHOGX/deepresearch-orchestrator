@@ -12,19 +12,21 @@ from rich.live import Live
 from rich.prompt import Prompt
 
 from deep_research.cli.components import (
+    ClarificationDisplay,
     PlanDisplay,
     ProgressDisplay,
     ReportDisplay,
     StatusDisplay,
     display_welcome,
     prompt_confirm_plan,
+    sanitize_input,
 )
 from deep_research.config import get_settings
 from deep_research.models.events import EventType
-from deep_research.models.research import AgentStatus, ResearchPhase
+from deep_research.models.research import AgentStatus, ResearchPhase, ResearchPlan
 from deep_research.services.event_bus import get_event_bus
 from deep_research.services.orchestrator import ResearchOrchestrator
-from deep_research.services.session_manager import get_session_manager
+from deep_research.services.session_manager import get_session_manager, reset_session_manager
 
 
 console = Console()
@@ -99,24 +101,53 @@ async def run_interactive_research(
         report_display = ReportDisplay(console)
         status_display = StatusDisplay(console)
         plan_display = PlanDisplay(console)
+        clarification_display = ClarificationDisplay(console)
 
     try:
         # Start research
         log_info("Starting research...")
         session = await orchestrator.start_research(query)
 
-        # Planning phase
+        # Planning phase with clarification loop
         log_phase("Phase 1", "Planning research strategy...")
-        await orchestrator.run_planning_phase(session)
+
+        while True:
+            try:
+                result = await orchestrator.run_planning_phase(session, batch_mode=batch_mode)
+            except ValueError as e:
+                # JSON parsing error - fail fast
+                log_error(f"Failed to parse planner response: {e}")
+                return 1
+
+            if isinstance(result, list):
+                # Got clarifications - need user input
+                if batch_mode:
+                    # In batch mode, this shouldn't happen due to batch_mode prompt
+                    # but if it does, just log and retry (the prompt should prevent this)
+                    log_error("Unexpected clarification request in batch mode")
+                    return 1
+
+                # Interactive mode: show clarifications and get answers
+                console.print(clarification_display.render_clarifications(result))
+                answers = clarification_display.prompt_answers(result)
+
+                # Add to session history and retry planning
+                session.clarification_history.extend(answers)
+                manager = await get_session_manager()
+                await manager.update_session(session)
+
+                log_info("Retrying planning with clarification answers...")
+                continue
+
+            # Got a ResearchPlan - exit loop
+            break
 
         if session.plan is None:
             log_error("Failed to create research plan")
             return 1
 
-        # Show plan and get confirmation
-        if not batch_mode and plan_display:
-            console.print(plan_display.render_plan(session.plan))
-        else:
+        # Show plan and get confirmation (only once, in prompt_confirm_plan)
+        if batch_mode:
             # Batch/JSON mode: output plan info to stderr
             out = sys.stderr if json_output else sys.stdout
             print(f"\n[PLAN] Generated {len(session.plan.plan_items)} research items:", file=out, flush=True)
@@ -124,25 +155,61 @@ async def run_interactive_research(
                 print(f"  {i}. {item.topic}", file=out, flush=True)
 
         if not auto_confirm:
-            confirmed, skip_indices = prompt_confirm_plan(console, session.plan)
+            # Plan confirmation loop with feedback support
+            while True:
+                # prompt_confirm_plan will render the plan
+                confirmed, skip_indices, feedback = prompt_confirm_plan(console, session.plan)
 
-            if not confirmed:
-                console.print("[yellow]Research cancelled.[/yellow]")
-                session.update_phase(ResearchPhase.CANCELLED)
-                manager = await get_session_manager()
-                await manager.update_session(session)
-                return 1
+                if feedback:
+                    # User provided feedback - add to clarification history and re-plan
+                    console.print("\n[cyan]Refining plan based on your feedback...[/cyan]\n")
+                    session.clarification_history.append(("User feedback on plan", feedback))
+                    manager = await get_session_manager()
+                    await manager.update_session(session)
 
-            # Apply skips
-            if skip_indices:
-                skip_ids = [
-                    session.plan.plan_items[i].id
-                    for i in skip_indices
-                    if 0 <= i < len(session.plan.plan_items)
-                ]
-                await orchestrator.confirm_plan(session, skip_items=skip_ids)
-            else:
-                await orchestrator.confirm_plan(session)
+                    # Clear the current plan and re-run planning
+                    session.plan = None
+                    try:
+                        result = await orchestrator.run_planning_phase(session, batch_mode=False)
+                    except ValueError as e:
+                        log_error(f"Failed to parse planner response: {e}")
+                        return 1
+
+                    if isinstance(result, list):
+                        # Got clarifications - show and collect answers
+                        console.print(clarification_display.render_clarifications(result))
+                        answers = clarification_display.prompt_answers(result)
+                        session.clarification_history.extend(answers)
+                        await manager.update_session(session)
+
+                        log_info("Retrying planning with clarification answers...")
+                        result = await orchestrator.run_planning_phase(session, batch_mode=False)
+
+                    if session.plan is None:
+                        log_error("Failed to create refined research plan")
+                        return 1
+
+                    # Loop back to show new plan and get confirmation
+                    continue
+
+                if not confirmed:
+                    console.print("[yellow]Research cancelled.[/yellow]")
+                    session.update_phase(ResearchPhase.CANCELLED)
+                    manager = await get_session_manager()
+                    await manager.update_session(session)
+                    return 1
+
+                # User confirmed - apply skips and exit loop
+                if skip_indices:
+                    skip_ids = [
+                        session.plan.plan_items[i].id
+                        for i in skip_indices
+                        if 0 <= i < len(session.plan.plan_items)
+                    ]
+                    await orchestrator.confirm_plan(session, skip_items=skip_ids)
+                else:
+                    await orchestrator.confirm_plan(session)
+                break  # Exit confirmation loop
         else:
             await orchestrator.confirm_plan(session)
 
@@ -253,11 +320,11 @@ async def run_interactive_research(
                     report_display.render_report(session.final_report)
 
                     # Offer to save
-                    save = Prompt.ask(
+                    save = sanitize_input(Prompt.ask(
                         "\n[bold]Save report to file?[/bold]",
                         choices=["y", "n"],
                         default="y",
-                    )
+                    ))
 
                     if save == "y":
                         report_display.save_report(session.final_report, filename)
@@ -326,9 +393,17 @@ async def resume_session(session_id: str) -> None:
             if session.phase == ResearchPhase.PLAN_REVIEW:
                 # Need to confirm plan
                 if session.plan:
-                    confirmed, skip_indices = prompt_confirm_plan(console, session.plan)
+                    confirmed, skip_indices, _feedback = prompt_confirm_plan(console, session.plan)
                     if confirmed:
-                        await orchestrator.confirm_plan(session)
+                        if skip_indices:
+                            skip_ids = [
+                                session.plan.plan_items[i].id
+                                for i in skip_indices
+                                if 0 <= i < len(session.plan.plan_items)
+                            ]
+                            await orchestrator.confirm_plan(session, skip_items=skip_ids)
+                        else:
+                            await orchestrator.confirm_plan(session)
                         await orchestrator.run_research_phase(session)
                         await orchestrator.run_synthesis_phase(session)
             elif session.phase == ResearchPhase.RESEARCHING:
@@ -461,9 +536,11 @@ def main() -> None:
 
             query = args.query
             if not query:
-                query = Prompt.ask("[bold]Enter your research question[/bold]")
+                query = sanitize_input(Prompt.ask("[bold]Enter your research question[/bold]"))
 
-            if query.strip():
+            # Sanitize query in case it comes from args with ANSI sequences
+            query = sanitize_input(query).strip()
+            if query:
                 return await run_interactive_research(
                     query,
                     auto_confirm=args.auto_confirm,
@@ -478,8 +555,16 @@ def main() -> None:
                     console.print("[red]No query provided.[/red]")
                 return 1
 
+    async def run_with_cleanup() -> int:
+        """Run async_main with proper cleanup of global resources."""
+        try:
+            return await async_main()
+        finally:
+            # Close the session manager's database connection to release threads
+            await reset_session_manager()
+
     try:
-        exit_code = asyncio.run(async_main())
+        exit_code = asyncio.run(run_with_cleanup())
         sys.exit(exit_code or 0)
     except KeyboardInterrupt:
         console.print("\n[yellow]Goodbye![/yellow]")

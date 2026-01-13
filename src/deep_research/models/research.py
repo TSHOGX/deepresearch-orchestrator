@@ -180,6 +180,9 @@ class ResearchSession(BaseModel):
         default_factory=list, description="Results from completed agents"
     )
     final_report: str | None = Field(default=None, description="Final synthesized report")
+    clarification_history: list[tuple[str, str]] = Field(
+        default_factory=list, description="History of (question, answer) clarifications"
+    )
     created_at: datetime = Field(default_factory=utc_now)
     updated_at: datetime = Field(default_factory=utc_now)
     completed_at: datetime | None = Field(default=None)

@@ -72,3 +72,6 @@ yarn-error.log*
 # Misc
 *.bak
 *.tmp
+
+# Research report
+research_report_*

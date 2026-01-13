@@ -40,7 +40,7 @@ class Settings(BaseSettings):
         default=10, ge=1, le=50, description="Maximum number of parallel researcher agents"
     )
     agent_timeout_seconds: int = Field(
-        default=300, ge=60, le=1800, description="Timeout for each agent in seconds"
+        default=0, ge=0, description="Timeout for each agent in seconds. 0 means no timeout."
     )
     checkpoint_interval_seconds: int = Field(
         default=60, ge=10, le=300, description="Interval for saving checkpoints"

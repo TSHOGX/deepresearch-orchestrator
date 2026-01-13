@@ -8,6 +8,8 @@ from datetime import datetime, timezone
 from typing import Any
 from uuid import uuid4
 
+from json_repair import repair_json
+
 from deep_research.agents.prompts import PromptBuilder, detect_language
 from deep_research.config import get_settings
 from deep_research.models.events import (
@@ -118,14 +120,23 @@ class ResearchOrchestrator:
         logger.info(f"Started research session {session.session_id}")
         return session
 
-    async def run_planning_phase(self, session: ResearchSession) -> ResearchPlan:
+    async def run_planning_phase(
+        self,
+        session: ResearchSession,
+        batch_mode: bool = False,
+    ) -> ResearchPlan | list[str]:
         """Run the planning phase to generate a research plan.
 
         Args:
             session: The research session.
+            batch_mode: If True, skip clarifications and generate plan directly.
 
         Returns:
-            The generated research plan.
+            Either a ResearchPlan or a list of clarification questions.
+
+        Raises:
+            ValueError: If the planner response cannot be parsed.
+            RuntimeError: If the planner execution fails.
         """
         logger.info(f"Starting planning phase for session {session.session_id}")
 
@@ -135,9 +146,13 @@ class ResearchOrchestrator:
 
         # Build prompts
         prompt_builder = PromptBuilder(language=session.detected_language)
-        system_prompt, user_prompt = prompt_builder.build_planner_prompts(session.user_query)
+        system_prompt, user_prompt = prompt_builder.build_planner_prompts(
+            session.user_query,
+            batch_mode=batch_mode,
+            clarification_context=session.clarification_history or None,
+        )
 
-        # Execute planner
+        # Execute planner (single-step, no schema enforcement)
         executor = create_planner_executor()
         result = await executor.execute(user_prompt, system_prompt)
 
@@ -147,8 +162,16 @@ class ResearchOrchestrator:
             await self._emit_error(session, "PLANNING_FAILED", error_msg)
             raise RuntimeError(error_msg)
 
-        # Parse the plan from result
-        plan = self._parse_plan_response(result.content)
+        # Parse the response (with json-repair fallback)
+        parsed = self._parse_plan_response(result.content)
+
+        if isinstance(parsed, list):
+            # Clarifications needed
+            logger.info(f"Planner returned {len(parsed)} clarification questions")
+            return parsed
+
+        # Got a full plan
+        plan = parsed
         session.plan = plan
 
         # Update session
@@ -168,64 +191,83 @@ class ResearchOrchestrator:
         logger.info(f"Planning complete with {len(plan.plan_items)} items")
         return plan
 
-    def _parse_plan_response(self, content: str) -> ResearchPlan:
-        """Parse the planner's response into a ResearchPlan.
+    def _parse_plan_response(self, content: str) -> ResearchPlan | list[str]:
+        """Parse the planner's response into a ResearchPlan or clarification list.
+
+        Uses json-repair to handle malformed JSON from LLM output.
 
         Args:
-            content: Raw response content.
+            content: Response content from planner.
 
         Returns:
-            Parsed ResearchPlan.
+            Either a ResearchPlan or a list of clarification questions.
+
+        Raises:
+            ValueError: If the response cannot be parsed.
         """
-        # Try to extract JSON from the response
-        json_match = re.search(r'\{[\s\S]*\}', content)
-        if not json_match:
-            # Fallback: create a simple plan
-            logger.warning("Could not parse JSON from planner response, using fallback")
-            return ResearchPlan(
-                understanding="Unable to parse structured plan",
-                plan_items=[
-                    PlanItem(
-                        topic="General Research",
-                        description=content[:500],
-                    )
-                ],
-            )
+        # Extract JSON from response
+        json_str = content
 
-        try:
-            data = json.loads(json_match.group())
-
-            plan_items = []
-            for item_data in data.get("plan_items", []):
-                plan_items.append(
-                    PlanItem(
-                        id=item_data.get("id", str(uuid4())[:8]),
-                        topic=item_data.get("topic", "Unknown"),
-                        description=item_data.get("description", ""),
-                        scope=item_data.get("scope", ""),
-                        priority=item_data.get("priority", 1),
-                        key_questions=item_data.get("key_questions", []),
-                        suggested_sources=item_data.get("suggested_sources", []),
-                    )
+        # Try to find JSON in markdown code blocks first
+        code_block_match = re.search(r'```(?:json)?\s*([\s\S]*?)```', content)
+        if code_block_match:
+            json_str = code_block_match.group(1).strip()
+        else:
+            # Try to find a standalone JSON object
+            json_match = re.search(r'\{[\s\S]*\}', content)
+            if json_match:
+                json_str = json_match.group()
+            elif not content.strip().startswith('{'):
+                raise ValueError(
+                    f"Could not find JSON in planner response. Response starts with: {content[:200]}"
                 )
 
-            return ResearchPlan(
-                understanding=data.get("understanding", ""),
-                clarifications=data.get("clarifications", []),
-                plan_items=plan_items,
-                estimated_time_minutes=data.get("estimated_time_minutes", 30),
+        # Try direct parse first
+        try:
+            data = json.loads(json_str)
+        except json.JSONDecodeError:
+            # Use json-repair for malformed JSON
+            logger.warning("JSON parse failed, attempting repair...")
+            try:
+                repaired = repair_json(json_str)
+                data = json.loads(repaired)
+                logger.info("JSON repair successful")
+            except Exception as e:
+                raise ValueError(f"Failed to parse or repair planner JSON: {e}") from e
+
+        # Check the mode
+        mode = data.get("mode", "plan")
+
+        if mode == "clarification":
+            clarifications = data.get("clarifications", [])
+            if not clarifications:
+                raise ValueError("Clarification mode but no clarifications provided")
+            return clarifications
+
+        # mode == "plan" or legacy format without mode
+        plan_items = []
+        for item_data in data.get("plan_items", []):
+            plan_items.append(
+                PlanItem(
+                    id=item_data.get("id", str(uuid4())[:8]),
+                    topic=item_data.get("topic", "Unknown"),
+                    description=item_data.get("description", ""),
+                    scope=item_data.get("scope", ""),
+                    priority=item_data.get("priority", 1),
+                    key_questions=item_data.get("key_questions", []),
+                    suggested_sources=item_data.get("suggested_sources", []),
+                )
             )
-        except (json.JSONDecodeError, KeyError) as e:
-            logger.warning(f"Error parsing plan JSON: {e}")
-            return ResearchPlan(
-                understanding=content[:500],
-                plan_items=[
-                    PlanItem(
-                        topic="Research",
-                        description="Conduct general research on the topic",
-                    )
-                ],
-            )
+
+        if not plan_items:
+            raise ValueError("Plan mode but no plan_items provided")
+
+        return ResearchPlan(
+            understanding=data.get("understanding", ""),
+            clarifications=data.get("clarifications", []),
+            plan_items=plan_items,
+            estimated_time_minutes=data.get("estimated_time_minutes", 30),
+        )
 
     async def confirm_plan(
         self,
@@ -479,13 +521,17 @@ class ResearchOrchestrator:
         """
         content = result.content
 
-        # Try to extract JSON
+        # Researcher outputs are now free-form natural language
+        # Optionally try to extract structured data if JSON is present
+        sources = []
+        confidence = 0.8  # Default confidence for natural language output
+
+        # Try to extract JSON for enhanced metadata (optional)
         json_match = re.search(r'\{[\s\S]*\}', content)
         if json_match:
             try:
                 data = json.loads(json_match.group())
-
-                sources = []
+                # Extract sources if available
                 for src in data.get("sources", []):
                     sources.append(
                         Source(
@@ -495,30 +541,28 @@ class ResearchOrchestrator:
                             reliability=src.get("reliability", "medium"),
                         )
                     )
-
-                return AgentResult(
-                    agent_id=agent_id,
-                    plan_item_id=plan_item_id,
-                    topic=topic,
-                    findings=data.get("findings", content),
-                    sources=sources,
-                    confidence=data.get("confidence", 0.8),
-                    raw_notes=content,
-                    execution_time=result.execution_time,
-                )
+                # Use structured findings if available, otherwise use full content
+                findings = data.get("findings", content)
+                confidence = data.get("confidence", 0.8)
             except (json.JSONDecodeError, KeyError):
-                pass
+                # JSON parsing failed - use natural language content
+                findings = content
+        else:
+            # No JSON found - use natural language content directly
+            findings = content
 
-        # Fallback: use raw content
         return AgentResult(
             agent_id=agent_id,
             plan_item_id=plan_item_id,
             topic=topic,
-            findings=content,
-            confidence=0.7,
+            findings=findings,
+            sources=sources,
+            confidence=confidence,
             raw_notes=content,
             execution_time=result.execution_time,
         )
+
+
 
     async def run_synthesis_phase(self, session: ResearchSession) -> str:
         """Run the synthesis phase to create the final report.

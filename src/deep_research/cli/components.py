@@ -1,12 +1,35 @@
 """Rich CLI components for the deep research system."""
 
+import re
 from typing import Any
 
 from rich.console import Console, Group
+
+
+# ANSI escape sequence pattern - matches control sequences including:
+# - CSI sequences: ESC [ ... (letter) - covers focus events ^[[I, ^[[O etc
+# - SS2/SS3: ESC N, ESC O
+ANSI_ESCAPE_RE = re.compile(r'\x1b\[[0-9;]*[a-zA-Z]|\x1b[NO]')
+
+
+def sanitize_input(text: str) -> str:
+    """Remove ANSI escape sequences from user input.
+
+    Terminal focus events (like clicking elsewhere) can inject escape
+    sequences like ^[[I (focus in) and ^[[O (focus out) into input.
+    This function strips them out.
+
+    Args:
+        text: Raw input text.
+
+    Returns:
+        Cleaned text with ANSI sequences removed.
+    """
+    return ANSI_ESCAPE_RE.sub('', text)
 from rich.live import Live
 from rich.markdown import Markdown
 from rich.panel import Panel
-from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
+from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich.table import Table
 from rich.text import Text
 
@@ -88,8 +111,73 @@ class PlanDisplay:
         }.get(status, "dim")
 
 
+class ClarificationDisplay:
+    """Display component for clarification questions."""
+
+    def __init__(self, console: Console | None = None):
+        """Initialize the clarification display.
+
+        Args:
+            console: Rich console instance.
+        """
+        self.console = console or Console()
+
+    def render_clarifications(self, clarifications: list[str], understanding: str = "") -> Panel:
+        """Render clarification questions as a Rich panel.
+
+        Args:
+            clarifications: List of clarification questions.
+            understanding: Optional current understanding to display.
+
+        Returns:
+            Rich Panel containing the clarifications.
+        """
+        content_parts = []
+
+        if understanding:
+            content_parts.append(Text(f"Current understanding: {understanding}\n\n", style="italic"))
+
+        content_parts.append(Text("Please answer the following questions to help focus the research:\n\n", style="yellow"))
+
+        for i, question in enumerate(clarifications, 1):
+            content_parts.append(Text(f"  {i}. {question}\n", style="bold"))
+
+        return Panel(
+            Group(*content_parts),
+            title="[bold yellow]Clarification Needed[/bold yellow]",
+            border_style="yellow",
+        )
+
+    def prompt_answers(self, clarifications: list[str]) -> list[tuple[str, str]]:
+        """Prompt user to answer each clarification question.
+
+        Args:
+            clarifications: List of clarification questions.
+
+        Returns:
+            List of (question, answer) tuples.
+        """
+        answers = []
+        self.console.print("\n[bold]Please answer each question (press Enter to skip):[/bold]\n")
+
+        for i, question in enumerate(clarifications, 1):
+            self.console.print(f"[cyan]Q{i}:[/cyan] {question}")
+            answer = sanitize_input(self.console.input("[green]A:[/green] ")).strip()
+            if answer:
+                answers.append((question, answer))
+            else:
+                answers.append((question, "(skipped)"))
+            self.console.print()
+
+        return answers
+
+
 class ProgressDisplay:
-    """Display component for research progress."""
+    """Display component for research progress.
+    
+    Shows a spinner with topic name (cyan) and current action (dim) for each agent.
+    No progress percentage - users can interrupt manually if needed.
+    """
 
     def __init__(self, console: Console | None = None):
         """Initialize progress display.
@@ -100,10 +188,8 @@ class ProgressDisplay:
         self.console = console or Console()
         self.progress = Progress(
             SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
-            BarColumn(),
-            TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
-            TimeElapsedColumn(),
+            TextColumn("[bold cyan]{task.fields[topic]}[/]"),
+            TextColumn("[dim]{task.description}[/]"),
             console=self.console,
         )
         self._task_ids: dict[str, int] = {}
@@ -123,7 +209,7 @@ class ProgressDisplay:
             agent_id: The agent ID.
             topic: The research topic.
         """
-        task_id = self.progress.add_task(topic, total=100)
+        task_id = self.progress.add_task("Starting...", topic=topic)
         self._task_ids[agent_id] = task_id
 
     def update_agent(self, progress: AgentProgress) -> None:
@@ -134,16 +220,8 @@ class ProgressDisplay:
         """
         if progress.agent_id in self._task_ids:
             task_id = self._task_ids[progress.agent_id]
-
-            description = progress.topic
-            if progress.current_action:
-                description = f"{progress.topic}: {progress.current_action[:30]}..."
-
-            self.progress.update(
-                task_id,
-                completed=progress.progress_percent,
-                description=description,
-            )
+            action = progress.current_action[:50] + "..." if progress.current_action and len(progress.current_action) > 50 else (progress.current_action or "Working...")
+            self.progress.update(task_id, description=action)
 
     def mark_completed(self, agent_id: str) -> None:
         """Mark an agent as completed.
@@ -153,7 +231,7 @@ class ProgressDisplay:
         """
         if agent_id in self._task_ids:
             task_id = self._task_ids[agent_id]
-            self.progress.update(task_id, completed=100)
+            self.progress.update(task_id, description="[green]✓ Completed[/]")
 
 
 class ReportDisplay:
@@ -271,7 +349,7 @@ def create_header() -> Panel:
     )
 
 
-def prompt_confirm_plan(console: Console, plan: ResearchPlan) -> tuple[bool, list[int] | None]:
+def prompt_confirm_plan(console: Console, plan: ResearchPlan) -> tuple[bool, list[int] | None, str | None]:
     """Prompt user to confirm or modify the plan.
 
     Args:
@@ -279,7 +357,10 @@ def prompt_confirm_plan(console: Console, plan: ResearchPlan) -> tuple[bool, lis
         plan: The research plan.
 
     Returns:
-        Tuple of (confirmed, skip_indices).
+        Tuple of (confirmed, skip_indices, feedback).
+        - confirmed: True if user wants to proceed
+        - skip_indices: List of item indices to skip (0-indexed), or None
+        - feedback: User feedback string to refine plan, or None
     """
     plan_display = PlanDisplay(console)
     console.print(plan_display.render_plan(plan))
@@ -287,22 +368,31 @@ def prompt_confirm_plan(console: Console, plan: ResearchPlan) -> tuple[bool, lis
     console.print("\n[bold]Options:[/bold]")
     console.print("  [green]y[/green] - Confirm and start research")
     console.print("  [yellow]s[/yellow] - Skip specific items (enter numbers)")
+    console.print("  [cyan]f[/cyan] - Provide feedback to refine the plan")
     console.print("  [red]n[/red] - Cancel")
 
-    response = console.input("\n[bold]Your choice:[/bold] ").strip().lower()
+    response = sanitize_input(console.input("\n[bold]Your choice:[/bold] ")).strip().lower()
 
     if response == "y":
-        return True, None
+        return True, None, None
     elif response == "s":
-        skip_input = console.input("Enter item numbers to skip (comma-separated): ").strip()
+        skip_input = sanitize_input(console.input("Enter item numbers to skip (comma-separated): ")).strip()
         try:
             skip_indices = [int(x.strip()) - 1 for x in skip_input.split(",")]
-            return True, skip_indices
+            return True, skip_indices, None
         except ValueError:
             console.print("[red]Invalid input, proceeding with all items[/red]")
-            return True, None
+            return True, None, None
+    elif response == "f":
+        console.print("\n[cyan]Enter your feedback to help refine the research plan:[/cyan]")
+        feedback = sanitize_input(console.input("[cyan]Feedback:[/cyan] ")).strip()
+        if feedback:
+            return False, None, feedback
+        else:
+            console.print("[yellow]No feedback provided, please choose another option.[/yellow]")
+            return prompt_confirm_plan(console, plan)  # Recurse to show options again
     else:
-        return False, None
+        return False, None, None
 
 
 def display_welcome(console: Console) -> None:

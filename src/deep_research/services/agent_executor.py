@@ -59,16 +59,22 @@ class ClaudeExecutor:
         self,
         model: str | None = None,
         timeout: int | None = None,
+        json_schema: dict | None = None,
+        allowed_tools: list[str] | None = None,
     ):
         """Initialize the executor.
 
         Args:
             model: Model to use (opus/sonnet/haiku). If None, uses config default.
-            timeout: Timeout in seconds. If None, uses config default.
+            timeout: Timeout in seconds. 0 means no timeout. If None, uses config default.
+            json_schema: Optional JSON schema for structured output enforcement.
+            allowed_tools: Optional list of tools to enable (e.g. ["WebSearch", "WebFetch"]).
         """
         settings = get_settings()
         self.model = model or settings.researcher_model
-        self.timeout = timeout or settings.agent_timeout_seconds
+        self.timeout = timeout if timeout is not None else settings.agent_timeout_seconds
+        self.json_schema = json_schema
+        self.allowed_tools = allowed_tools
 
     def _build_command(
         self,
@@ -97,6 +103,18 @@ class ClaudeExecutor:
         if system_prompt:
             cmd.extend(["--system-prompt", system_prompt])
 
+        if self.json_schema:
+            cmd.extend(["--json-schema", json.dumps(self.json_schema)])
+
+        if self.allowed_tools:
+            # Use --tools to specify available tools (not --allowedTools which is for restrictions)
+            cmd.extend(["--tools", ",".join(self.allowed_tools)])
+            # Bypass permission prompts for non-interactive use
+            cmd.extend(["--permission-mode", "bypassPermissions"])
+
+        # Use '--' to signal end of options before the prompt
+        # This prevents options like --tools from consuming the prompt
+        cmd.append("--")
         cmd.append(prompt)
         return cmd
 
@@ -124,16 +142,33 @@ class ClaudeExecutor:
         if msg_type == "assistant":
             # Assistant message with content
             content = ""
+            tool_name = None
+            tool_input = None
             if "message" in data:
                 message = data["message"]
                 if "content" in message and isinstance(message["content"], list):
                     for block in message["content"]:
                         if block.get("type") == "text":
                             content += block.get("text", "")
+                        elif block.get("type") == "tool_use":
+                            # Extract tool use info for progress display
+                            tool_name = block.get("name", "")
+                            tool_input = block.get("input", {})
+                            # Create a human-readable content for tool use
+                            if tool_name == "WebSearch":
+                                query = tool_input.get("query", "")
+                                content = f"Searching: {query[:50]}..." if len(query) > 50 else f"Searching: {query}"
+                            elif tool_name == "WebFetch":
+                                url = tool_input.get("url", "")
+                                content = f"Fetching: {url[:50]}..." if len(url) > 50 else f"Fetching: {url}"
+                            else:
+                                content = f"Using {tool_name}..."
             return StreamMessage(
                 type=MessageType.ASSISTANT,
                 content=content,
                 raw=data,
+                tool_name=tool_name,
+                tool_input=tool_input,
             )
 
         elif msg_type == "content_block_delta":
@@ -229,7 +264,11 @@ class ClaudeExecutor:
                                 await result
 
             try:
-                await asyncio.wait_for(read_stream(), timeout=self.timeout)
+                # If timeout is 0, run without timeout (user can interrupt manually)
+                if self.timeout > 0:
+                    await asyncio.wait_for(read_stream(), timeout=self.timeout)
+                else:
+                    await read_stream()
                 await process.wait()
             except asyncio.TimeoutError:
                 process.kill()
@@ -353,32 +392,50 @@ class ClaudeExecutor:
 def create_executor(
     model: str | None = None,
     timeout: int | None = None,
+    json_schema: dict | None = None,
+    allowed_tools: list[str] | None = None,
 ) -> ClaudeExecutor:
     """Factory function to create a ClaudeExecutor.
 
     Args:
         model: Model to use (opus/sonnet/haiku).
-        timeout: Timeout in seconds.
+        timeout: Timeout in seconds. 0 means no timeout.
+        json_schema: Optional JSON schema for structured output.
+        allowed_tools: Optional list of tools to enable.
 
     Returns:
         Configured ClaudeExecutor instance.
     """
-    return ClaudeExecutor(model=model, timeout=timeout)
+    return ClaudeExecutor(model=model, timeout=timeout, json_schema=json_schema, allowed_tools=allowed_tools)
 
 
-def create_planner_executor() -> ClaudeExecutor:
-    """Create an executor configured for the planner agent."""
+def create_planner_executor(json_schema: dict | None = None) -> ClaudeExecutor:
+    """Create an executor configured for the planner agent.
+
+    Args:
+        json_schema: Optional JSON schema for structured output.
+    """
     settings = get_settings()
-    return ClaudeExecutor(model=settings.planner_model)
+    return ClaudeExecutor(model=settings.planner_model, timeout=0, json_schema=json_schema)
 
 
 def create_researcher_executor() -> ClaudeExecutor:
-    """Create an executor configured for researcher agents."""
+    """Create an executor configured for researcher agents.
+    
+    Enables WebSearch and WebFetch tools for research tasks.
+    """
     settings = get_settings()
-    return ClaudeExecutor(model=settings.researcher_model)
+    return ClaudeExecutor(
+        model=settings.researcher_model,
+        timeout=0,
+        allowed_tools=["WebSearch", "WebFetch"],
+    )
 
 
 def create_synthesizer_executor() -> ClaudeExecutor:
-    """Create an executor configured for the synthesizer agent."""
+    """Create an executor configured for the synthesizer agent.
+    
+    No tools needed - just text synthesis from research findings.
+    """
     settings = get_settings()
-    return ClaudeExecutor(model=settings.synthesizer_model)
+    return ClaudeExecutor(model=settings.synthesizer_model, timeout=0)

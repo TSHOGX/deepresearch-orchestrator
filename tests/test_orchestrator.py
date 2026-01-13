@@ -86,23 +86,74 @@ class TestPlanParsing:
         assert len(plan.plan_items[0].key_questions) == 1
         assert plan.estimated_time_minutes == 45
 
-    def test_parse_invalid_json_fallback(self, orchestrator: ResearchOrchestrator) -> None:
-        """Test fallback when JSON is invalid."""
+    def test_parse_invalid_json_raises_error(self, orchestrator: ResearchOrchestrator) -> None:
+        """Test that invalid JSON raises ValueError instead of fallback."""
         content = "This is just text without any JSON"
 
-        plan = orchestrator._parse_plan_response(content)
+        with pytest.raises(ValueError, match="Could not find JSON"):
+            orchestrator._parse_plan_response(content)
 
-        assert len(plan.plan_items) == 1
-        assert plan.plan_items[0].topic == "General Research"
+    def test_parse_malformed_json_raises_error(self, orchestrator: ResearchOrchestrator) -> None:
+        """Test that malformed JSON raises ValueError."""
+        # Incomplete JSON without closing brace won't match the regex
+        content = '{"understanding": "test", "plan_items": [{"topic": '
 
-    def test_parse_malformed_json(self, orchestrator: ResearchOrchestrator) -> None:
-        """Test handling malformed JSON."""
-        content = '{"understanding": "test", "plan_items": [{"topic": '  # incomplete
+        # This triggers "Could not find JSON" because the regex requires matching braces
+        with pytest.raises(ValueError, match="Could not find JSON"):
+            orchestrator._parse_plan_response(content)
 
-        plan = orchestrator._parse_plan_response(content)
+    def test_parse_invalid_json_syntax_raises_error(self, orchestrator: ResearchOrchestrator) -> None:
+        """Test that syntactically invalid JSON raises ValueError."""
+        # This has matching braces but invalid JSON syntax
+        content = '{"understanding": "test", "plan_items": [{"topic": invalid}]}'
 
-        # Should fall back gracefully
-        assert len(plan.plan_items) >= 1
+        with pytest.raises(ValueError, match="Failed to parse planner response as JSON"):
+            orchestrator._parse_plan_response(content)
+
+    def test_parse_clarification_response(self, orchestrator: ResearchOrchestrator) -> None:
+        """Test parsing clarification mode response."""
+        content = '''
+        {
+          "mode": "clarification",
+          "understanding": "User wants to research e-commerce",
+          "clarifications": ["Which platform?", "B2B or B2C?"]
+        }
+        '''
+
+        result = orchestrator._parse_plan_response(content)
+
+        assert isinstance(result, list)
+        assert len(result) == 2
+        assert "Which platform?" in result
+        assert "B2B or B2C?" in result
+
+    def test_parse_plan_from_code_block(self, orchestrator: ResearchOrchestrator) -> None:
+        """Test parsing JSON from markdown code block."""
+        content = '''Here is your plan:
+
+```json
+{
+  "mode": "plan",
+  "understanding": "Research renewable energy",
+  "plan_items": [
+    {
+      "topic": "Solar Energy",
+      "description": "Research solar",
+      "priority": 1
+    }
+  ],
+  "estimated_time_minutes": 30
+}
+```
+
+Let me know if you have questions.'''
+
+        result = orchestrator._parse_plan_response(content)
+
+        assert isinstance(result, ResearchPlan)
+        assert result.understanding == "Research renewable energy"
+        assert len(result.plan_items) == 1
+        assert result.plan_items[0].topic == "Solar Energy"
 
 
 class TestResearcherResponseParsing:

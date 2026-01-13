@@ -41,7 +41,7 @@ class TestSettings:
         assert settings.researcher_model == "sonnet"
         assert settings.synthesizer_model == "opus"
         assert settings.max_parallel_agents == 10
-        assert settings.agent_timeout_seconds == 300
+        assert settings.agent_timeout_seconds == 0  # 0 means no timeout
         assert settings.checkpoint_interval_seconds == 60
         assert settings.log_level == "INFO"
 
