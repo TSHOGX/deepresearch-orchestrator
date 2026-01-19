@@ -73,5 +73,5 @@ yarn-error.log*
 *.bak
 *.tmp
 
-# Research report
-research_report_*
+# Output directory (reports, etc.)
+output/

@@ -5,7 +5,6 @@ import json
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
 
 import aiosqlite
 
@@ -17,6 +16,17 @@ from deep_research.models.research import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Phase ordering for comparison (higher = more advanced in workflow)
+_PHASE_ORDER = {
+    ResearchPhase.PLANNING: 0,
+    ResearchPhase.PLAN_REVIEW: 1,
+    ResearchPhase.RESEARCHING: 2,
+    ResearchPhase.SYNTHESIZING: 3,
+    ResearchPhase.COMPLETED: 4,
+    ResearchPhase.FAILED: 4,
+    ResearchPhase.CANCELLED: 4,
+}
 
 
 def utc_now() -> datetime:
@@ -161,6 +171,33 @@ class SessionManager:
             return None
 
         return self._row_to_session(row)
+
+    async def find_session_by_prefix(self, prefix: str) -> ResearchSession | None:
+        """Find a session by ID prefix.
+
+        Args:
+            prefix: The session ID prefix (e.g., first 8 characters).
+
+        Returns:
+            The session if exactly one match is found, None otherwise.
+        """
+        db = await self._ensure_connected()
+
+        # Use LIKE for prefix matching
+        async with db.execute(
+            "SELECT * FROM sessions WHERE session_id LIKE ? ORDER BY created_at DESC",
+            (f"{prefix}%",),
+        ) as cursor:
+            rows = list(await cursor.fetchall())
+
+        if len(rows) == 0:
+            logger.debug(f"No sessions found with prefix {prefix}")
+            return None
+        elif len(rows) == 1:
+            return self._row_to_session(rows[0])
+        else:
+            logger.warning(f"Multiple sessions found with prefix {prefix}, returning most recent")
+            return self._row_to_session(rows[0])
 
     async def update_session(self, session: ResearchSession) -> ResearchSession:
         """Update an existing session.
@@ -349,21 +386,64 @@ class SessionManager:
         return [Checkpoint.model_validate_json(row["checkpoint_json"]) for row in rows]
 
     async def restore_from_checkpoint(self, session_id: str) -> ResearchSession | None:
-        """Restore a session from its latest checkpoint.
+        """Restore a session from its latest checkpoint or session table.
+
+        Supports both full session IDs and short prefixes (e.g., first 8 characters).
+
+        For terminal states (COMPLETED, FAILED, CANCELLED), returns the session
+        directly from the sessions table. For resumable states, restores from
+        the latest checkpoint if available, otherwise from the session table.
 
         Args:
-            session_id: The session ID.
+            session_id: The session ID or ID prefix.
 
         Returns:
-            The restored session or None if no checkpoint exists.
+            The restored session or None if not found.
         """
-        checkpoint = await self.get_latest_checkpoint(session_id)
-        if not checkpoint:
-            logger.warning(f"No checkpoint found for session {session_id}")
-            return None
+        # First, try to resolve the full session_id and get session from table
+        if len(session_id) < 36:  # UUID is 36 characters with dashes
+            # Try prefix matching
+            session = await self.find_session_by_prefix(session_id)
+            if not session:
+                logger.warning(f"No session found with prefix {session_id}")
+                return None
+        else:
+            session = await self.get_session(session_id)
+            if not session:
+                logger.warning(f"No session found with ID {session_id}")
+                return None
 
-        session = ResearchSession.from_checkpoint(checkpoint)
-        logger.info(f"Restored session {session_id} from checkpoint")
+        full_session_id = session.session_id
+
+        # For terminal states OR sessions with final report, return the session
+        # directly from the table (the authoritative final state)
+        # Note: checking final_report is a safeguard against stale checkpoints
+        if session.phase in (
+            ResearchPhase.COMPLETED,
+            ResearchPhase.FAILED,
+            ResearchPhase.CANCELLED,
+        ) or session.final_report:
+            logger.info(f"Session {full_session_id} is in terminal state {session.phase.value} or has final report, returning from session table")
+            return session
+
+        # For resumable states, try to restore from checkpoint
+        checkpoint = await self.get_latest_checkpoint(full_session_id)
+        if checkpoint:
+            restored_session = ResearchSession.from_checkpoint(checkpoint)
+            # Preserve critical fields from the database session that may not be in checkpoint
+            restored_session.final_report = session.final_report
+            restored_session.error = session.error
+            # If database shows a more advanced phase, use that
+            db_phase_order = _PHASE_ORDER.get(session.phase, 0)
+            checkpoint_phase_order = _PHASE_ORDER.get(checkpoint.phase, 0)
+            if db_phase_order > checkpoint_phase_order:
+                logger.info(f"Database phase {session.phase.value} is more advanced than checkpoint phase {checkpoint.phase.value}, using database phase")
+                restored_session.phase = session.phase
+            logger.info(f"Restored session {full_session_id} from checkpoint")
+            return restored_session
+
+        # No checkpoint available, return session from table
+        logger.info(f"No checkpoint found for session {full_session_id}, returning from session table")
         return session
 
     async def cleanup_old_checkpoints(

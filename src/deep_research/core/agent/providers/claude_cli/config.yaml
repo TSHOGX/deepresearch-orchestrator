@@ -1,0 +1,23 @@
+# Claude CLI provider configuration
+name: claude_cli
+version: "1.0"
+
+# Model mapping: logical name -> actual model name
+models:
+  opus: opus
+  sonnet: sonnet
+  haiku: haiku
+
+# CLI argument templates
+cli:
+  streaming:
+    - "-p"
+    - "--verbose"
+    - "--output-format"
+    - "stream-json"
+    - "--dangerously-skip-permissions"
+  non_streaming:
+    - "-p"
+    - "--output-format"
+    - "json"
+    - "--dangerously-skip-permissions"

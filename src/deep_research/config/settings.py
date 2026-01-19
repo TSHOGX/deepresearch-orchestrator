@@ -24,16 +24,26 @@ class Settings(BaseSettings):
     api_host: str = Field(default="0.0.0.0", description="API server host")
     api_port: int = Field(default=12050, description="API server port")
 
-    # Model Configuration
-    planner_model: Literal["opus", "sonnet", "haiku"] = Field(
+    # Agent Provider Selection
+    agent_provider: str = Field(
+        default="claude_cli",
+        description="Active agent provider (claude_cli, opencode, etc.)"
+    )
+
+    # Model Configuration (logical names mapped by each provider)
+    planner_model: str = Field(
         default="opus", description="Model for planner agent"
     )
-    researcher_model: Literal["opus", "sonnet", "haiku"] = Field(
+    researcher_model: str = Field(
         default="sonnet", description="Model for researcher agents"
     )
-    synthesizer_model: Literal["opus", "sonnet", "haiku"] = Field(
-        default="opus", description="Model for synthesizer agent"
+    synthesizer_model: str = Field(
+        default="sonnet", description="Model for synthesizer agent"
     )
+
+    # OpenCode Server Configuration
+    opencode_host: str = Field(default="127.0.0.1", description="OpenCode server host")
+    opencode_port: int = Field(default=4096, description="OpenCode server port")
 
     # Research Settings
     max_parallel_agents: int = Field(
@@ -54,6 +64,9 @@ class Settings(BaseSettings):
     checkpoints_dir: Path = Field(
         default=Path("./data/checkpoints"), description="Checkpoints directory path"
     )
+    reports_dir: Path = Field(
+        default=Path("./output/reports"), description="Reports output directory path"
+    )
 
     # Logging
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = Field(
@@ -64,6 +77,7 @@ class Settings(BaseSettings):
         """Create necessary directories if they don't exist."""
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.checkpoints_dir.mkdir(parents=True, exist_ok=True)
+        self.reports_dir.mkdir(parents=True, exist_ok=True)
         # Ensure database parent directory exists
         self.database_path.parent.mkdir(parents=True, exist_ok=True)
 

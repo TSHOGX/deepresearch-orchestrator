@@ -12,7 +12,7 @@ from deep_research.models.research import (
     ResearchPlan,
     ResearchSession,
 )
-from deep_research.services.agent_executor import ExecutionResult
+from deep_research.core.agent import ExecutionResult
 from deep_research.services.event_bus import EventBus
 from deep_research.services.orchestrator import ResearchOrchestrator
 from deep_research.services.session_manager import SessionManager

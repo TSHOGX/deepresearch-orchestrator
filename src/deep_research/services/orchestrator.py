@@ -21,6 +21,7 @@ from deep_research.models.events import (
     ErrorEvent,
     PhaseChangeEvent,
     PlanDraftEvent,
+    PlanProgressEvent,
     ReportReadyEvent,
     SynthesisProgressEvent,
     SynthesisStartedEvent,
@@ -36,8 +37,8 @@ from deep_research.models.research import (
     ResearchSession,
     Source,
 )
-from deep_research.services.agent_executor import (
-    ClaudeExecutor,
+from deep_research.core.agent import (
+    AgentExecutor,
     ExecutionResult,
     StreamMessage,
     create_planner_executor,
@@ -79,6 +80,7 @@ class ResearchOrchestrator:
         self._event_bus = event_bus
         self._checkpoint_task: asyncio.Task | None = None
         self._cancelled = False
+        self._session_lock = asyncio.Lock()  # Lock for concurrent session updates
 
     async def _get_session_manager(self) -> SessionManager:
         """Get the session manager instance."""
@@ -154,7 +156,32 @@ class ResearchOrchestrator:
 
         # Execute planner (single-step, no schema enforcement)
         executor = create_planner_executor()
-        result = await executor.execute(user_prompt, system_prompt)
+
+        # Stream progress updates during planning
+        async def on_message(msg: StreamMessage) -> None:
+            """Handle streaming messages for progress updates."""
+            content = msg.content or ""
+
+            # Skip JSON content (final response) - only show meaningful progress
+            if content.strip().startswith(("{", "[")):
+                action = "Generating plan..."
+            elif msg.tool_name:
+                # Tool use - show tool progress
+                action = content[:80] if content else f"Using {msg.tool_name}..."
+            elif content:
+                # Regular text - might be thinking/reasoning
+                action = content[:80]
+            else:
+                action = "Planning..."
+
+            await self._get_event_bus().publish(
+                PlanProgressEvent(
+                    session_id=session.session_id,
+                    current_action=action,
+                )
+            )
+
+        result = await executor.execute(user_prompt, system_prompt, on_message=on_message)
 
         if not result.success:
             error_msg = f"Planning failed: {result.error}"
@@ -345,17 +372,16 @@ class ResearchOrchestrator:
             # Wait for all to complete
             results = await asyncio.gather(*tasks, return_exceptions=True)
 
-            # Process results
+            # Collect results (already saved to session in _run_single_researcher)
             agent_results = []
             for result in results:
                 if isinstance(result, Exception):
-                    logger.error(f"Researcher failed: {result}")
+                    logger.error(f"Researcher failed with exception: {result}")
                 elif isinstance(result, AgentResult):
                     agent_results.append(result)
-                    session.add_agent_result(result)
 
-            # Update session
-            await manager.update_session(session)
+            # Results are already saved incrementally in _run_single_researcher
+            # Return collected results for caller reference
             return agent_results
 
         finally:
@@ -464,6 +490,12 @@ class ResearchOrchestrator:
             if session.plan:
                 session.plan.update_item_status(item.id, PlanItemStatus.COMPLETED)
 
+            # Immediately save result to session (with lock for concurrency safety)
+            async with self._session_lock:
+                session.add_agent_result(agent_result)
+                manager = await self._get_session_manager()
+                await manager.update_session(session)
+
             # Emit completion event
             await self._get_event_bus().publish(
                 AgentCompletedEvent(
@@ -483,6 +515,26 @@ class ResearchOrchestrator:
             progress.completed_at = utc_now()
             session.update_agent_progress(progress)
 
+            # Update plan item status to failed
+            if session.plan:
+                session.plan.update_item_status(item.id, PlanItemStatus.FAILED)
+
+            # Create minimal result for failed agent
+            failed_result = AgentResult(
+                agent_id=agent_id,
+                plan_item_id=item.id,
+                topic=item.topic,
+                findings=f"Research failed: {e}",
+                confidence=0.0,
+                execution_time=(utc_now() - start_time).total_seconds(),
+            )
+
+            # Immediately save failed result to session (with lock for concurrency safety)
+            async with self._session_lock:
+                session.add_agent_result(failed_result)
+                manager = await self._get_session_manager()
+                await manager.update_session(session)
+
             await self._get_event_bus().publish(
                 AgentFailedEvent(
                     session_id=session.session_id,
@@ -491,15 +543,7 @@ class ResearchOrchestrator:
                 )
             )
 
-            # Return a minimal result for failed agent
-            return AgentResult(
-                agent_id=agent_id,
-                plan_item_id=item.id,
-                topic=item.topic,
-                findings=f"Research failed: {e}",
-                confidence=0.0,
-                execution_time=(utc_now() - start_time).total_seconds(),
-            )
+            return failed_result
 
     def _parse_researcher_response(
         self,

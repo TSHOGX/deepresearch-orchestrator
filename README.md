@@ -1,34 +1,59 @@
 # Deep Research
 
-Multi-agent deep research system powered by Claude Code CLI.
+A multi-agent deep research system that conducts comprehensive research through parallel AI agents.
+
+## Overview
+
+Deep Research breaks down complex research questions into parallel investigation tasks, executes them concurrently, and synthesizes findings into comprehensive reports.
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    Three-Phase Workflow                         │
+├─────────────────┬─────────────────────┬─────────────────────────┤
+│   Phase 1       │      Phase 2        │       Phase 3           │
+│   Planning      │     Research        │      Synthesis          │
+│                 │                     │                         │
+│  Query → Plan   │  Parallel Agents    │  Findings → Report      │
+│  (opus model)   │  (sonnet model)     │  (opus model)           │
+└─────────────────┴─────────────────────┴─────────────────────────┘
+```
 
 ## Features
 
-- Three-phase research workflow: Planning → Research → Synthesis
-- Parallel researcher agents with no upper limit
-- Checkpoint recovery for long-running tasks
-- Both CLI and Web interfaces
-- Real-time SSE streaming for progress updates
-- Language auto-detection (English/Chinese)
+- **Three-Phase Workflow**: Planning → Parallel Research → Synthesis
+- **Parallel Execution**: Multiple researcher agents work concurrently
+- **Checkpoint Recovery**: Resume interrupted research sessions
+- **Multiple Interfaces**: CLI (interactive/batch) and Web UI
+- **Multi-Provider Support**: Claude CLI, OpenCode (extensible)
+- **Language Auto-Detection**: Responds in user's language
 
-## Installation
+## Quick Start
 
-### Backend
+### Prerequisites
+
+Install [OpenCode](https://opencode.ai) and configure API access:
 
 ```bash
+# Install OpenCode
+curl -fsSL https://opencode.ai/install | bash
+
+# Configure (in TUI, run /connect and select provider)
+opencode
+```
+
+### Installation
+
+```bash
+# Clone and install
+git clone <repo-url>
+cd claudecli-deepresearch
 pip install -e ".[dev]"
+
+# Start OpenCode server
+opencode serve --port 4096
 ```
 
-### Web Frontend
-
-```bash
-cd web
-npm install
-```
-
-## Usage
-
-### CLI
+### Usage
 
 ```bash
 # Interactive mode
@@ -40,13 +65,10 @@ deep-research "Your research question"
 # Auto-confirm plan
 deep-research -y "Your research question"
 
-# Batch mode (non-interactive, for automation/testing)
+# Batch mode (non-interactive)
 deep-research -b "Your research question"
 
-# Batch mode with custom output file
-deep-research -b -o report.md "Your research question"
-
-# JSON output (structured data to stdout, progress to stderr)
+# JSON output
 deep-research -b --json "Your research question"
 
 # Resume session
@@ -54,39 +76,51 @@ deep-research -r SESSION_ID
 
 # List sessions
 deep-research -l
-
-# Verbose logging
-deep-research -v "Your research question"
 ```
 
-#### CLI Options
+See [Usage Guide](docs/usage.md) for complete CLI reference.
 
-| Option | Short | Description |
-|--------|-------|-------------|
-| `--auto-confirm` | `-y` | Automatically confirm the research plan |
-| `--batch` | `-b` | Batch mode: no interactive prompts, auto-save report |
-| `--output FILE` | `-o` | Output file for the report (default: auto-generated) |
-| `--json` | | Output results in JSON format (for programmatic use) |
-| `--resume ID` | `-r` | Resume a previous session |
-| `--list` | `-l` | List recent sessions |
-| `--verbose` | `-v` | Enable verbose logging |
+## Documentation
 
-### API Server
+| Document | Description |
+|----------|-------------|
+| [Architecture](docs/architecture.md) | System design and component overview |
+| [Usage Guide](docs/usage.md) | Complete CLI and API usage |
+| [Configuration](docs/configuration.md) | Environment variables and settings |
+| [API Reference](docs/api.md) | REST API and SSE endpoints |
+| [Development](docs/development/) | Internal design documents |
+
+## Project Structure
+
+```
+src/deep_research/
+├── cli/           # Command-line interface
+├── api/           # FastAPI REST/SSE server
+├── core/agent/    # Agent abstraction layer
+│   └── providers/ # Claude CLI, OpenCode implementations
+├── services/      # Orchestrator, session management
+├── models/        # Data models
+└── agents/        # Prompt templates
+```
+
+## Configuration
+
+Copy `.env.example` to `.env`:
 
 ```bash
-# Start backend (port 12050)
-deep-research-api
+cp .env.example .env
 ```
 
-### Web Frontend
+Key settings:
 
-```bash
-# Start frontend (port 12051)
-cd web
-npm run dev
-```
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `AGENT_PROVIDER` | `opencode` | Agent provider (`opencode`, `claude_cli`) |
+| `PLANNER_MODEL` | `opus` | Model for planning |
+| `RESEARCHER_MODEL` | `sonnet` | Model for research |
+| `MAX_PARALLEL_AGENTS` | `10` | Concurrent researcher limit |
 
-Then open http://localhost:12051 in your browser.
+See [Configuration Guide](docs/configuration.md) for all options.
 
 ## Ports
 
@@ -94,81 +128,69 @@ Then open http://localhost:12051 in your browser.
 |---------|------|
 | FastAPI Backend | 12050 |
 | Next.js Frontend | 12051 |
-
-## Configuration
-
-Copy `.env.example` to `.env` and customize settings:
-
-```bash
-cp .env.example .env
-```
-
-### Environment Variables
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `API_HOST` | `0.0.0.0` | API server host |
-| `API_PORT` | `12050` | API server port |
-| `PLANNER_MODEL` | `opus` | Model for planning agent |
-| `RESEARCHER_MODEL` | `sonnet` | Model for researcher agents |
-| `SYNTHESIZER_MODEL` | `opus` | Model for synthesis agent |
-| `MAX_PARALLEL_AGENTS` | `10` | Max concurrent research agents |
-| `AGENT_TIMEOUT_SECONDS` | `600` | Agent timeout |
-| `CHECKPOINT_INTERVAL_SECONDS` | `60` | Checkpoint save interval |
-
-## API Endpoints
-
-### Research
-
-- `POST /api/research/start` - Start new research session
-- `GET /api/research/{id}` - Get session status
-- `POST /api/research/{id}/confirm` - Confirm research plan
-- `POST /api/research/{id}/cancel` - Cancel session
-- `POST /api/research/{id}/resume` - Resume session
-- `GET /api/research/{id}/report` - Get final report
-- `GET /api/research/{id}/stream` - SSE event stream
-
-### Configuration
-
-- `GET /api/config` - Get current configuration
-- `PUT /api/config` - Update configuration
-
-### Health
-
-- `GET /health` - Health check
-- `GET /ready` - Readiness check
+| OpenCode Server | 4096 |
 
 ## Development
 
 ```bash
-# Install with dev dependencies
-pip install -e ".[dev]"
-
-# Run backend tests
+# Run tests
 pytest
 
-# Run linter
+# Lint
 ruff check src tests
 
-# Build web frontend
-cd web && npm run build
+# Start API server
+deep-research-api
+
+# Start web frontend
+cd web && npm run dev
 ```
 
-## Architecture
+## Roadmap
 
-```
-┌─────────────┐     ┌──────────────┐     ┌─────────────┐
-│  Web/CLI    │────▶│  FastAPI     │────▶│  Claude     │
-│  Interface  │◀────│  Backend     │◀────│  Code CLI   │
-└─────────────┘     └──────────────┘     └─────────────┘
-                           │
-                           ▼
-                    ┌──────────────┐
-                    │   SQLite     │
-                    │  (Sessions   │
-                    │ Checkpoints) │
-                    └──────────────┘
-```
+### Observability & Analytics
+
+- [ ] **Cost Tracking**: Token usage and API cost statistics per session/agent
+- [ ] **Execution Metrics**: Detailed timing breakdown for each phase
+- [ ] **Usage Dashboard**: Historical statistics and trends
+
+### CLI/TUI Improvements
+
+- [ ] **Planning Progress**: Show progress during thinking phase (currently only shows during tool calls)
+- [ ] **Resume Polish**: Improve UX for resuming at different phases (plan review, mid-research, etc.)
+- [ ] **Session Search**: Add search/filter for `deep-research -l` (by query, date, status)
+- [ ] **Edge Cases**: Handle various TUI edge cases (terminal resize, long text, etc.)
+- [ ] **Error Recovery**: Better error messages and recovery suggestions
+
+### Web UI
+
+- [ ] **Full Testing**: Comprehensive testing of all workflows
+- [ ] **Mobile Responsive**: Optimize for mobile devices
+- [ ] **Dark Mode**: Theme support
+
+### Architecture Enhancements
+
+- [ ] **Recursive Research**: Allow researchers to spawn sub-agents for deeper investigation
+  ```
+  Researcher Agent
+      │
+      ├─→ Sub-query 1 → Sub-researcher
+      └─→ Sub-query 2 → Sub-researcher
+  ```
+- [ ] **Citation Verification**: Dedicated module to verify and format citations
+  - Cross-check URLs accessibility
+  - Extract exact quotes
+  - Generate proper citation format
+- [ ] **Quality Assessment**: Score research findings for confidence/completeness
+- [ ] **Result Deduplication**: Detect and merge overlapping findings across agents
+- [ ] **Adaptive Depth**: Dynamically adjust research depth based on topic complexity
+- [ ] **Source Caching**: Cache fetched web pages to reduce redundant requests
+
+### Provider Extensions
+
+- [ ] **Aider Integration**: Add Aider as an agent provider
+- [ ] **Local LLMs**: Support for Ollama/vLLM backends
+- [ ] **Hybrid Mode**: Mix providers for different agent roles
 
 ## License
 

@@ -37,13 +37,17 @@ class TestSettings:
 
         assert settings.api_host == "0.0.0.0"
         assert settings.api_port == 12050
+        assert settings.agent_provider == "claude_cli"
         assert settings.planner_model == "opus"
         assert settings.researcher_model == "sonnet"
-        assert settings.synthesizer_model == "opus"
+        assert settings.synthesizer_model == "sonnet"
         assert settings.max_parallel_agents == 10
         assert settings.agent_timeout_seconds == 0  # 0 means no timeout
         assert settings.checkpoint_interval_seconds == 60
         assert settings.log_level == "INFO"
+        # OpenCode server settings
+        assert settings.opencode_host == "127.0.0.1"
+        assert settings.opencode_port == 4096
 
     def test_environment_variable_override(self) -> None:
         """Test that environment variables override defaults."""
@@ -57,15 +61,15 @@ class TestSettings:
         assert settings.planner_model == "sonnet"
         assert settings.max_parallel_agents == 5
 
-    def test_model_validation(self) -> None:
-        """Test that only valid model values are accepted."""
-        os.environ["PLANNER_MODEL"] = "opus"
+    def test_model_override(self) -> None:
+        """Test that model values can be overridden via environment."""
+        os.environ["PLANNER_MODEL"] = "opencode/custom-model"
         settings = Settings()
-        assert settings.planner_model == "opus"
+        assert settings.planner_model == "opencode/custom-model"
 
-        os.environ["RESEARCHER_MODEL"] = "haiku"
+        os.environ["RESEARCHER_MODEL"] = "anthropic/claude-sonnet"
         settings = Settings()
-        assert settings.researcher_model == "haiku"
+        assert settings.researcher_model == "anthropic/claude-sonnet"
 
     def test_get_settings_singleton(self) -> None:
         """Test that get_settings returns the same instance."""

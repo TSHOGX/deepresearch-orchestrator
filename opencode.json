@@ -1,0 +1,46 @@
+{
+    "$schema": "https://opencode.ai/config.json",
+    "model": "opencode/minimax-m2.1-free",
+    "small_model": "opencode/minimax-m2.1-free",
+    "provider": {
+        "opencode": {}
+    },
+    "agent": {
+        "planner": {
+            "description": "Research planning agent - analyzes queries and creates research plans",
+            "mode": "primary",
+            "model": "opencode/minimax-m2.1-free",
+            "tools": {
+                "write": false,
+                "edit": false,
+                "bash": false,
+                "webfetch": false
+            }
+        },
+        "researcher": {
+            "description": "Research agent - performs web research on specific topics",
+            "mode": "subagent",
+            "model": "opencode/minimax-m2.1",
+            "tools": {
+                "write": false,
+                "edit": false,
+                "bash": false,
+                "webfetch": true
+            }
+        },
+        "synthesizer": {
+            "description": "Synthesis agent - combines research findings into reports",
+            "mode": "subagent",
+            "model": "opencode/minimax-m2.1",
+            "tools": {
+                "write": false,
+                "edit": false,
+                "bash": false,
+                "webfetch": false
+            }
+        }
+    },
+    "permission": {
+        "webfetch": "allow"
+    }
+}

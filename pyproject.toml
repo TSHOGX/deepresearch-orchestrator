@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "deep-research"
 version = "0.1.0"
-description = "Multi-agent deep research system powered by Claude Code CLI"
+description = "Multi-agent deep research system powered by OpenCode"
 readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "MIT"}

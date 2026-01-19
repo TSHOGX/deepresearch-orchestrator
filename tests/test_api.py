@@ -63,7 +63,7 @@ class TestConfigEndpoints:
         assert data["api_port"] == 12050
         assert data["planner_model"] == "opus"
         assert data["researcher_model"] == "sonnet"
-        assert data["synthesizer_model"] == "opus"
+        assert data["synthesizer_model"] == "sonnet"
         assert data["max_parallel_agents"] == 10
 
     @pytest.mark.asyncio

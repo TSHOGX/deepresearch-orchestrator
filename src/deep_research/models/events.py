@@ -23,6 +23,7 @@ class EventType(str, Enum):
     """Types of SSE events."""
 
     # Planning phase
+    PLAN_PROGRESS = "plan_progress"
     PLAN_DRAFT = "plan_draft"
     PLAN_UPDATED = "plan_updated"
 
@@ -66,6 +67,13 @@ class BaseEvent(BaseModel):
         import json
 
         return f"event: {self.event_type.value}\ndata: {json.dumps(self.model_dump(mode='json'))}\n\n"
+
+
+class PlanProgressEvent(BaseEvent):
+    """Event for planning phase progress updates."""
+
+    event_type: EventType = EventType.PLAN_PROGRESS
+    current_action: str = ""
 
 
 class PlanDraftEvent(BaseEvent):

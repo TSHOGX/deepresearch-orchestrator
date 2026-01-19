@@ -1,0 +1,15 @@
+# OpenCode provider configuration
+name: opencode
+version: "1.0"
+
+# Model mapping: logical name -> actual model name
+models:
+  opus: anthropic/claude-3-opus
+  sonnet: anthropic/claude-3-sonnet
+  haiku: anthropic/claude-3-haiku
+  minimax: opencode/minimax-m2.1-free
+
+# Server configuration
+server:
+  host: 127.0.0.1
+  port: 4096
