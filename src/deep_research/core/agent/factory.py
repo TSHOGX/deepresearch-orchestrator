@@ -31,7 +31,7 @@ class AgentRegistry:
         """Register decorator for agent providers.
 
         Args:
-            name: Provider name (e.g., "claude_cli", "opencode").
+            name: Provider name (e.g., "codex_cli", "claude_cli", "opencode").
             default: Whether this is the default provider.
 
         Returns:

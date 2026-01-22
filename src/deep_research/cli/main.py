@@ -20,6 +20,8 @@ from deep_research.cli.components import (
     display_welcome,
     prompt_confirm_plan,
     sanitize_input,
+    normalize_progress_text,
+    truncate_progress_text,
 )
 from deep_research.config import get_settings
 from deep_research.models.events import EventType
@@ -152,10 +154,13 @@ async def run_interactive_research(
 
                     # Update spinner while planning
                     with Live(console=console, refresh_per_second=4) as live:
+                        spinner = Spinner("dots", text=Text(" Planning...", style="dim"))
                         while not planning_task.done():
-                            action = planning_status["action"]
-                            display_action = f" {action[:60]}..." if len(action) > 60 else f" {action}"
-                            spinner = Spinner("dots", text=Text(display_action, style="dim"))
+                            action = normalize_progress_text(planning_status["action"])
+                            display_action = f" {action}" if action else " Planning..."
+                            max_width = max(20, console.width - 6)
+                            display_action = truncate_progress_text(display_action, max_width)
+                            spinner.text = Text(display_action, style="dim")
                             live.update(spinner)
                             await asyncio.sleep(0.1)
 
@@ -534,10 +539,13 @@ async def resume_session(session_id: str) -> None:
 
                         # Update spinner while planning
                         with Live(console=console, refresh_per_second=4) as live:
+                            spinner = Spinner("dots", text=Text(" Planning...", style="dim"))
                             while not planning_task.done():
-                                action = planning_status["action"]
-                                display_action = f" {action[:60]}..." if len(action) > 60 else f" {action}"
-                                spinner = Spinner("dots", text=Text(display_action, style="dim"))
+                                action = normalize_progress_text(planning_status["action"])
+                                display_action = f" {action}" if action else " Planning..."
+                                max_width = max(20, console.width - 6)
+                                display_action = truncate_progress_text(display_action, max_width)
+                                spinner.text = Text(display_action, style="dim")
                                 live.update(spinner)
                                 await asyncio.sleep(0.1)
 

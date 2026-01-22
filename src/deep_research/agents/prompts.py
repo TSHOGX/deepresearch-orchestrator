@@ -415,6 +415,8 @@ Create a comprehensive Markdown report with this structure:
 - Properly attribute all information to sources
 - Highlight high-confidence findings vs. uncertain areas
 - Make the report actionable and useful
+- Output only the Markdown report; do not include preambles, internal thoughts, or analysis of the task
+- Start the response immediately with the report title line (`# Research Report: [Topic]`)
 
 {LANGUAGE_INSTRUCTION}"""
 

@@ -1,6 +1,6 @@
 """JSON schemas for structured LLM outputs.
 
-These schemas are used with Claude CLI's --json-schema parameter
+These schemas are used with CLI providers that support JSON schema output
 to enforce structured output at the API level.
 """
 

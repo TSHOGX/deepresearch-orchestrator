@@ -61,9 +61,10 @@ class TestConfigEndpoints:
         data = response.json()
 
         assert data["api_port"] == 12050
-        assert data["planner_model"] == "opus"
-        assert data["researcher_model"] == "sonnet"
-        assert data["synthesizer_model"] == "sonnet"
+        assert data["agent_provider"] == "codex_cli"
+        assert data["planner_model"] == "gpt-5.2"
+        assert data["researcher_model"] == "gpt-5.2"
+        assert data["synthesizer_model"] == "gpt-5.2"
         assert data["max_parallel_agents"] == 10
 
     @pytest.mark.asyncio
@@ -72,7 +73,7 @@ class TestConfigEndpoints:
         response = await client.put(
             "/api/config",
             json={
-                "planner_model": "sonnet",
+                "planner_model": "gpt-5.2",
                 "max_parallel_agents": 5,
             },
         )
@@ -80,7 +81,7 @@ class TestConfigEndpoints:
         assert response.status_code == 200
         data = response.json()
 
-        assert data["planner_model"] == "sonnet"
+        assert data["planner_model"] == "gpt-5.2"
         assert data["max_parallel_agents"] == 5
 
     @pytest.mark.asyncio

@@ -1,0 +1,18 @@
+# Codex CLI provider configuration
+name: codex_cli
+version: "1.0"
+
+# Model mapping: logical name -> actual model name
+models:
+  default: gpt-5.2
+  opus: gpt-5.2
+  sonnet: gpt-5.2
+  haiku: gpt-5.2
+
+# CLI argument templates
+cli:
+  base:
+    - "exec"
+    - "--json"
+  extra:
+    - "--dangerously-bypass-approvals-and-sandbox"

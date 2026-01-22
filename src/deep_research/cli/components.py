@@ -9,7 +9,8 @@ from rich.console import Console, Group
 # ANSI escape sequence pattern - matches control sequences including:
 # - CSI sequences: ESC [ ... (letter) - covers focus events ^[[I, ^[[O etc
 # - SS2/SS3: ESC N, ESC O
-ANSI_ESCAPE_RE = re.compile(r'\x1b\[[0-9;]*[a-zA-Z]|\x1b[NO]')
+ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-9;]*[a-zA-Z]|\x1b[NO]")
+INLINE_WHITESPACE_RE = re.compile(r"\s+")
 
 
 def sanitize_input(text: str) -> str:
@@ -25,7 +26,24 @@ def sanitize_input(text: str) -> str:
     Returns:
         Cleaned text with ANSI sequences removed.
     """
-    return ANSI_ESCAPE_RE.sub('', text)
+    return ANSI_ESCAPE_RE.sub("", text)
+
+
+def normalize_progress_text(text: str) -> str:
+    """Normalize progress text for single-line display."""
+    if not text:
+        return ""
+    return INLINE_WHITESPACE_RE.sub(" ", text.strip())
+
+
+def truncate_progress_text(text: str, max_width: int) -> str:
+    """Truncate text to a display width using Rich's cell width logic."""
+    if max_width <= 0:
+        return ""
+    rich_text = Text(text)
+    if rich_text.cell_len > max_width:
+        rich_text.truncate(max_width, overflow="ellipsis")
+    return rich_text.plain
 from rich.live import Live
 from rich.markdown import Markdown
 from rich.panel import Panel
@@ -188,9 +206,10 @@ class ProgressDisplay:
         self.console = console or Console()
         self.progress = Progress(
             SpinnerColumn(),
-            TextColumn("[bold cyan]{task.fields[topic]}[/]"),
-            TextColumn("[dim]{task.description}[/]"),
+            TextColumn("[bold cyan]{task.fields[topic]}[/]", overflow="ellipsis", no_wrap=True),
+            TextColumn("[dim]{task.description}[/]", overflow="ellipsis", no_wrap=True),
             console=self.console,
+            expand=True,
         )
         self._task_ids: dict[str, int] = {}
 
@@ -220,8 +239,8 @@ class ProgressDisplay:
         """
         if progress.agent_id in self._task_ids:
             task_id = self._task_ids[progress.agent_id]
-            action = progress.current_action[:50] + "..." if progress.current_action and len(progress.current_action) > 50 else (progress.current_action or "Working...")
-            self.progress.update(task_id, description=action)
+            action = normalize_progress_text(progress.current_action or "")
+            self.progress.update(task_id, description=action or "Working...")
 
     def mark_completed(self, agent_id: str) -> None:
         """Mark an agent as completed.

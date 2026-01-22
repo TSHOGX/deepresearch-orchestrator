@@ -448,13 +448,19 @@ GET /api/config
 
 ```json
 {
-  "agent_provider": "opencode",
-  "planner_model": "opus",
-  "researcher_model": "sonnet",
-  "synthesizer_model": "opus",
+  "api_host": "0.0.0.0",
+  "api_port": 12050,
+  "agent_provider": "codex_cli",
+  "planner_provider": null,
+  "researcher_provider": null,
+  "synthesizer_provider": null,
+  "planner_model": "gpt-5.2",
+  "researcher_model": "gpt-5.2",
+  "synthesizer_model": "gpt-5.2",
   "max_parallel_agents": 10,
   "agent_timeout_seconds": 600,
-  "checkpoint_interval_seconds": 60
+  "checkpoint_interval_seconds": 60,
+  "log_level": "INFO"
 }
 ```
 
@@ -474,7 +480,8 @@ Content-Type: application/json
 ```json
 {
   "max_parallel_agents": 5,
-  "researcher_model": "haiku"
+  "researcher_model": "gpt-5.2",
+  "researcher_provider": "codex_cli"
 }
 ```
 
@@ -482,16 +489,19 @@ Content-Type: application/json
 
 ```json
 {
-  "message": "Configuration updated",
-  "config": {
-    "agent_provider": "opencode",
-    "planner_model": "opus",
-    "researcher_model": "haiku",
-    "synthesizer_model": "opus",
-    "max_parallel_agents": 5,
-    "agent_timeout_seconds": 600,
-    "checkpoint_interval_seconds": 60
-  }
+  "api_host": "0.0.0.0",
+  "api_port": 12050,
+  "agent_provider": "codex_cli",
+  "planner_provider": null,
+  "researcher_provider": "codex_cli",
+  "synthesizer_provider": null,
+  "planner_model": "gpt-5.2",
+  "researcher_model": "gpt-5.2",
+  "synthesizer_model": "gpt-5.2",
+  "max_parallel_agents": 5,
+  "agent_timeout_seconds": 600,
+  "checkpoint_interval_seconds": 60,
+  "log_level": "INFO"
 }
 ```
 

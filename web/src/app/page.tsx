@@ -464,7 +464,7 @@ export default function ResearchPage() {
       <footer className="border-t mt-auto">
         <div className="container mx-auto px-4 py-4">
           <p className="text-center text-sm text-muted-foreground">
-            Powered by Claude Code CLI &middot; Multi-Agent Deep Research System
+            Powered by Codex CLI &middot; Multi-Agent Deep Research System
           </p>
         </div>
       </footer>

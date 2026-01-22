@@ -40,7 +40,7 @@ def _map_model(logical_model: str) -> str:
     return models.get(logical_model, logical_model)
 
 
-@AgentRegistry.register("claude_cli", default=True)
+@AgentRegistry.register("claude_cli")
 class ClaudeCLIExecutor(AgentExecutor):
     """Executor using Claude CLI subprocess.
 

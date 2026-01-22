@@ -32,7 +32,7 @@ Deep Research is a multi-agent research system built on a three-phase workflow a
 │  ┌─────────────┐    ┌─────────────────────┐    ┌─────────────┐              │
 │  │  Phase 1    │ →  │     Phase 2         │ →  │  Phase 3    │              │
 │  │  Planner    │    │   Researchers       │    │ Synthesizer │              │
-│  │  (opus)     │    │   (sonnet × N)      │    │  (opus)     │              │
+│  │ (config)    │    │   (config × N)      │    │ (config)    │              │
 │  └─────────────┘    └─────────────────────┘    └─────────────┘              │
 │         │                    │                        │                      │
 │         └────────────────────┴────────────────────────┘                      │
@@ -53,7 +53,8 @@ Deep Research is a multi-agent research system built on a three-phase workflow a
 │  └── execute_stream(prompt, system_prompt) → AsyncIterator[StreamMessage]   │
 │                                                                              │
 │  Providers:                                                                  │
-│  ├── Claude CLI   - Subprocess invocation                                   │
+│  ├── Codex CLI    - Subprocess invocation                                   │
+│  ├── Claude CLI   - Subprocess invocation (optional)                        │
 │  └── OpenCode     - HTTP API to opencode serve                              │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -70,7 +71,7 @@ User Query
     ▼
 ┌─────────────────────────────────┐
 │         Planner Agent           │
-│         (opus model)            │
+│          (config)               │
 ├─────────────────────────────────┤
 │ 1. Understand core intent       │
 │ 2. Identify key aspects         │
@@ -108,7 +109,7 @@ Parallel Researcher Agents investigate each plan item independently.
          ▼               ▼               ▼
 ┌─────────────┐  ┌─────────────┐  ┌─────────────┐
 │ Researcher 1│  │ Researcher 2│  │ Researcher N│
-│  (sonnet)   │  │  (sonnet)   │  │  (sonnet)   │
+│ (config)  │  │ (config)  │  │ (config)  │
 ├─────────────┤  ├─────────────┤  ├─────────────┤
 │ WebSearch   │  │ WebSearch   │  │ WebSearch   │
 │ WebFetch    │  │ WebFetch    │  │ WebFetch    │
@@ -147,7 +148,7 @@ The Synthesizer Agent combines all findings into a comprehensive report.
                 ▼
 ┌─────────────────────────────────┐
 │       Synthesizer Agent         │
-│         (opus model)            │
+│          (config)               │
 ├─────────────────────────────────┤
 │ 1. Integrate findings           │
 │ 2. Resolve contradictions       │
@@ -205,6 +206,7 @@ create_synthesizer_executor() -> AgentExecutor
 
 | Provider | Implementation | Connection |
 |----------|---------------|------------|
+| Codex CLI | `providers/codex_cli/` | Subprocess |
 | Claude CLI | `providers/claude_cli/` | Subprocess |
 | OpenCode | `providers/opencode/` | HTTP API |
 
@@ -312,6 +314,7 @@ src/deep_research/
 │       ├── types.py               # Shared types
 │       ├── factory.py             # Agent factory
 │       └── providers/
+│           ├── codex_cli/         # Codex CLI provider
 │           ├── claude_cli/        # Claude CLI provider
 │           └── opencode/          # OpenCode provider
 │

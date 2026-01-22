@@ -26,19 +26,33 @@ class Settings(BaseSettings):
 
     # Agent Provider Selection
     agent_provider: str = Field(
-        default="claude_cli",
-        description="Active agent provider (claude_cli, opencode, etc.)"
+        default="codex_cli",
+        description="Active agent provider (codex_cli, claude_cli, opencode, etc.)"
+    )
+
+    # Optional per-role provider overrides
+    planner_provider: str | None = Field(
+        default=None,
+        description="Provider override for planner agent (optional)"
+    )
+    researcher_provider: str | None = Field(
+        default=None,
+        description="Provider override for researcher agents (optional)"
+    )
+    synthesizer_provider: str | None = Field(
+        default=None,
+        description="Provider override for synthesizer agent (optional)"
     )
 
     # Model Configuration (logical names mapped by each provider)
     planner_model: str = Field(
-        default="opus", description="Model for planner agent"
+        default="gpt-5.2", description="Model for planner agent"
     )
     researcher_model: str = Field(
-        default="sonnet", description="Model for researcher agents"
+        default="gpt-5.2", description="Model for researcher agents"
     )
     synthesizer_model: str = Field(
-        default="sonnet", description="Model for synthesizer agent"
+        default="gpt-5.2", description="Model for synthesizer agent"
     )
 
     # OpenCode Server Configuration

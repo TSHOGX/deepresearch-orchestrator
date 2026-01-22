@@ -14,7 +14,7 @@ Deep Research breaks down complex research questions into parallel investigation
 │   Planning      │     Research        │      Synthesis          │
 │                 │                     │                         │
 │  Query → Plan   │  Parallel Agents    │  Findings → Report      │
-│  (opus model)   │  (sonnet model)     │  (opus model)           │
+│  (configured)   │  (configured)       │  (configured)           │
 └─────────────────┴─────────────────────┴─────────────────────────┘
 ```
 
@@ -24,21 +24,27 @@ Deep Research breaks down complex research questions into parallel investigation
 - **Parallel Execution**: Multiple researcher agents work concurrently
 - **Checkpoint Recovery**: Resume interrupted research sessions
 - **Multiple Interfaces**: CLI (interactive/batch) and Web UI
-- **Multi-Provider Support**: Claude CLI, OpenCode (extensible)
+- **Multi-Provider Support**: Codex CLI (default), OpenCode, Claude CLI (optional)
 - **Language Auto-Detection**: Responds in user's language
 
 ## Quick Start
 
 ### Prerequisites
 
-Install [OpenCode](https://opencode.ai) and configure API access:
+Install Codex CLI and authenticate:
 
 ```bash
-# Install OpenCode
-curl -fsSL https://opencode.ai/install | bash
+# Authenticate
+codex login
 
-# Configure (in TUI, run /connect and select provider)
-opencode
+# Verify
+codex --version
+```
+
+Optional (if using OpenCode provider):
+
+```bash
+opencode serve --port 4096
 ```
 
 ### Installation
@@ -46,11 +52,8 @@ opencode
 ```bash
 # Clone and install
 git clone <repo-url>
-cd claudecli-deepresearch
+cd deepresearch-orchestrator
 pip install -e ".[dev]"
-
-# Start OpenCode server
-opencode serve --port 4096
 ```
 
 ### Usage
@@ -97,7 +100,7 @@ src/deep_research/
 ├── cli/           # Command-line interface
 ├── api/           # FastAPI REST/SSE server
 ├── core/agent/    # Agent abstraction layer
-│   └── providers/ # Claude CLI, OpenCode implementations
+│   └── providers/ # Codex CLI, Claude CLI, OpenCode implementations
 ├── services/      # Orchestrator, session management
 ├── models/        # Data models
 └── agents/        # Prompt templates
@@ -115,12 +118,14 @@ Key settings:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `AGENT_PROVIDER` | `opencode` | Agent provider (`opencode`, `claude_cli`) |
-| `PLANNER_MODEL` | `opus` | Model for planning |
-| `RESEARCHER_MODEL` | `sonnet` | Model for research |
+| `AGENT_PROVIDER` | `codex_cli` | Agent provider (`codex_cli`, `opencode`, `claude_cli`) |
+| `PLANNER_MODEL` | provider default | Model for planning |
+| `RESEARCHER_MODEL` | provider default | Model for research |
 | `MAX_PARALLEL_AGENTS` | `10` | Concurrent researcher limit |
 
 See [Configuration Guide](docs/configuration.md) for all options.
+
+Model names are provider-specific; see the configuration guide for mappings.
 
 ## Ports
 

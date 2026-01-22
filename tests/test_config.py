@@ -22,6 +22,10 @@ class TestSettings:
         env_vars = [
             "API_HOST",
             "API_PORT",
+            "AGENT_PROVIDER",
+            "PLANNER_PROVIDER",
+            "RESEARCHER_PROVIDER",
+            "SYNTHESIZER_PROVIDER",
             "PLANNER_MODEL",
             "RESEARCHER_MODEL",
             "SYNTHESIZER_MODEL",
@@ -37,10 +41,10 @@ class TestSettings:
 
         assert settings.api_host == "0.0.0.0"
         assert settings.api_port == 12050
-        assert settings.agent_provider == "claude_cli"
-        assert settings.planner_model == "opus"
-        assert settings.researcher_model == "sonnet"
-        assert settings.synthesizer_model == "sonnet"
+        assert settings.agent_provider == "codex_cli"
+        assert settings.planner_model == "gpt-5.2"
+        assert settings.researcher_model == "gpt-5.2"
+        assert settings.synthesizer_model == "gpt-5.2"
         assert settings.max_parallel_agents == 10
         assert settings.agent_timeout_seconds == 0  # 0 means no timeout
         assert settings.checkpoint_interval_seconds == 60

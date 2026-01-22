@@ -43,7 +43,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="Deep Research API",
-        description="Multi-agent deep research system powered by Claude Code CLI",
+        description="Multi-agent deep research system powered by Codex CLI",
         version="0.1.0",
         lifespan=lifespan,
     )

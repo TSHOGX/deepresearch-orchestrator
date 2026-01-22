@@ -1,7 +1,7 @@
 """Core agent abstraction layer.
 
 This module provides a unified interface for different agent providers
-(Claude CLI, OpenCode, etc.) to be used interchangeably.
+(Codex CLI, Claude CLI, OpenCode, etc.) to be used interchangeably.
 """
 
 from .base import AgentExecutor
@@ -38,7 +38,13 @@ def create_executor(role: AgentRole, provider: str | None = None) -> AgentExecut
         Configured AgentExecutor instance.
     """
     settings = _get_settings()
-    provider = provider or settings.agent_provider
+    role_provider_map = {
+        AgentRole.PLANNER: settings.planner_provider,
+        AgentRole.RESEARCHER: settings.researcher_provider,
+        AgentRole.SYNTHESIZER: settings.synthesizer_provider,
+    }
+    role_provider = role_provider_map.get(role)
+    provider = provider or role_provider or settings.agent_provider
 
     # Get role-specific model from settings
     model_map = {

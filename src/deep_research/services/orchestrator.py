@@ -40,6 +40,7 @@ from deep_research.models.research import (
 from deep_research.core.agent import (
     AgentExecutor,
     ExecutionResult,
+    MessageType,
     StreamMessage,
     create_planner_executor,
     create_researcher_executor,
@@ -54,6 +55,12 @@ logger = logging.getLogger(__name__)
 def utc_now() -> datetime:
     """Get current UTC time as timezone-aware datetime."""
     return datetime.now(timezone.utc)
+
+
+def _is_terminal_signal(msg: StreamMessage) -> bool:
+    """Return True for provider terminal signals that shouldn't surface as progress."""
+    content = (msg.content or "").strip()
+    return msg.type == MessageType.SYSTEM and content.upper() == "DONE"
 
 
 class ResearchOrchestrator:
@@ -160,17 +167,19 @@ class ResearchOrchestrator:
         # Stream progress updates during planning
         async def on_message(msg: StreamMessage) -> None:
             """Handle streaming messages for progress updates."""
+            if _is_terminal_signal(msg):
+                return
             content = msg.content or ""
 
+            # Prefer tool progress when available
+            if msg.tool_name:
+                action = content[:200] if content else f"Using {msg.tool_name}..."
             # Skip JSON content (final response) - only show meaningful progress
-            if content.strip().startswith(("{", "[")):
+            elif content.strip().startswith(("{", "[")):
                 action = "Generating plan..."
-            elif msg.tool_name:
-                # Tool use - show tool progress
-                action = content[:80] if content else f"Using {msg.tool_name}..."
             elif content:
                 # Regular text - might be thinking/reasoning
-                action = content[:80]
+                action = content[:200]
             else:
                 action = "Planning..."
 
@@ -460,9 +469,14 @@ class ResearchOrchestrator:
             # Execute researcher
             executor = create_researcher_executor()
 
-            async def on_message(msg: StreamMessage) -> None:
-                """Handle streaming messages."""
-                progress.current_action = msg.content[:100] if msg.content else ""
+        async def on_message(msg: StreamMessage) -> None:
+            """Handle streaming messages."""
+            if _is_terminal_signal(msg):
+                return
+            content = msg.content or ""
+            if msg.tool_name and not content:
+                content = f"Using {msg.tool_name}..."
+            progress.current_action = content[:200]
                 progress.progress_percent = min(progress.progress_percent + 5, 90)
                 await self._get_event_bus().publish(
                     AgentProgressEvent(
@@ -660,12 +674,17 @@ class ResearchOrchestrator:
 
         async def on_message(msg: StreamMessage) -> None:
             nonlocal progress_pct
+            if _is_terminal_signal(msg):
+                return
             progress_pct = min(progress_pct + 2, 95)
+            content = msg.content or ""
+            if msg.tool_name and not content:
+                content = f"Using {msg.tool_name}..."
             await self._get_event_bus().publish(
                 SynthesisProgressEvent(
                     session_id=session.session_id,
                     progress_percent=progress_pct,
-                    current_action="Generating report...",
+                    current_action=content[:200] if content else "Generating report...",
                 )
             )
 

@@ -25,10 +25,19 @@ nano .env
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `AGENT_PROVIDER` | `claude_cli` | Active provider: `claude_cli`, `opencode` |
+| `AGENT_PROVIDER` | `codex_cli` | Active provider: `codex_cli`, `opencode`, `claude_cli` |
+
+**Role Overrides**:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `PLANNER_PROVIDER` | *(unset)* | Optional provider override for planner agent |
+| `RESEARCHER_PROVIDER` | *(unset)* | Optional provider override for researcher agents |
+| `SYNTHESIZER_PROVIDER` | *(unset)* | Optional provider override for synthesizer agent |
 
 **Provider Options**:
 
+- `codex_cli` - Direct Codex CLI subprocess calls
 - `claude_cli` - Direct Claude CLI subprocess calls
 - `opencode` - OpenCode server HTTP API
 
@@ -36,9 +45,9 @@ nano .env
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `PLANNER_MODEL` | `opus` | Model for planner agent |
-| `RESEARCHER_MODEL` | `sonnet` | Model for researcher agents |
-| `SYNTHESIZER_MODEL` | `sonnet` | Model for synthesizer agent |
+| `PLANNER_MODEL` | provider default | Model for planner agent |
+| `RESEARCHER_MODEL` | provider default | Model for researcher agents |
+| `SYNTHESIZER_MODEL` | provider default | Model for synthesizer agent |
 
 **Model Options** (logical names mapped by provider):
 
@@ -47,6 +56,8 @@ nano .env
 | `opus` | Complex reasoning, planning, synthesis | High |
 | `sonnet` | General research, balanced quality/cost | Medium |
 | `haiku` | Simple tasks, high volume | Low |
+
+**Note**: The Codex CLI provider maps all logical model names to `gpt-5.2` by default.
 
 ### OpenCode Provider Settings
 
@@ -84,10 +95,10 @@ nano .env
 
 ```bash
 # .env
-AGENT_PROVIDER=opencode
-PLANNER_MODEL=opus
-RESEARCHER_MODEL=sonnet
-SYNTHESIZER_MODEL=sonnet
+AGENT_PROVIDER=codex_cli
+PLANNER_MODEL=gpt-5.2
+RESEARCHER_MODEL=gpt-5.2
+SYNTHESIZER_MODEL=gpt-5.2
 MAX_PARALLEL_AGENTS=5
 LOG_LEVEL=DEBUG
 ```
@@ -96,17 +107,17 @@ LOG_LEVEL=DEBUG
 
 ```bash
 # .env
-AGENT_PROVIDER=opencode
-PLANNER_MODEL=opus
-RESEARCHER_MODEL=sonnet
-SYNTHESIZER_MODEL=opus
+AGENT_PROVIDER=codex_cli
+PLANNER_MODEL=gpt-5.2
+RESEARCHER_MODEL=gpt-5.2
+SYNTHESIZER_MODEL=gpt-5.2
 MAX_PARALLEL_AGENTS=20
 AGENT_TIMEOUT_SECONDS=600
 CHECKPOINT_INTERVAL_SECONDS=30
 LOG_LEVEL=WARNING
 ```
 
-### Cost-Optimized
+### OpenCode Cost-Optimized
 
 ```bash
 # .env
@@ -117,7 +128,7 @@ SYNTHESIZER_MODEL=sonnet
 MAX_PARALLEL_AGENTS=10
 ```
 
-### Quality-Focused
+### OpenCode Quality-Focused
 
 ```bash
 # .env
@@ -128,7 +139,17 @@ SYNTHESIZER_MODEL=opus
 MAX_PARALLEL_AGENTS=5
 ```
 
-### Claude CLI Direct
+### Codex CLI Direct
+
+```bash
+# .env
+AGENT_PROVIDER=codex_cli
+PLANNER_MODEL=gpt-5.2
+RESEARCHER_MODEL=gpt-5.2
+SYNTHESIZER_MODEL=gpt-5.2
+```
+
+### Claude CLI Direct (Optional)
 
 ```bash
 # .env
@@ -139,6 +160,27 @@ SYNTHESIZER_MODEL=opus
 ```
 
 ## Provider Configuration
+
+### Codex CLI Provider
+
+Codex CLI requires the `codex` command to be available and authenticated.
+
+**Setup**:
+
+```bash
+# Authenticate
+codex login
+```
+
+**Verify**:
+
+```bash
+codex --version
+codex exec --json "Hello"
+```
+
+**Note**: The default Codex CLI provider config uses `--dangerously-bypass-approvals-and-sandbox`.
+Edit `src/deep_research/core/agent/providers/codex_cli/config.yaml` to change it.
 
 ### OpenCode Provider
 
@@ -164,7 +206,7 @@ opencode serve --port 4096
 curl http://127.0.0.1:4096/health
 ```
 
-### Claude CLI Provider
+### Claude CLI Provider (Optional)
 
 Claude CLI requires the `claude` command to be available and authenticated.
 
@@ -234,6 +276,17 @@ Error: OpenCode server not responding
 1. Ensure OpenCode server is running: `opencode serve --port 4096`
 2. Check port configuration matches: `OPENCODE_PORT=4096`
 3. Verify server health: `curl http://127.0.0.1:4096/health`
+
+### Codex CLI Not Found
+
+```
+Error: codex command not found
+```
+
+**Solutions**:
+1. Install Codex CLI (see official OpenAI Codex CLI docs)
+2. Ensure `codex` is in PATH
+3. Authenticate: `codex login`
 
 ### Claude CLI Not Found
 

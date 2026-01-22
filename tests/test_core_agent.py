@@ -1,5 +1,6 @@
 """Tests for core agent abstraction layer."""
 
+import os
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -116,17 +117,18 @@ class TestAgentRegistry:
     def test_list_providers(self) -> None:
         """Test listing registered providers."""
         providers = AgentRegistry.list_providers()
+        assert "codex_cli" in providers
         assert "claude_cli" in providers
         assert "opencode" in providers
 
     def test_get_default_provider(self) -> None:
         """Test getting default provider."""
         default = AgentRegistry.get_default()
-        assert default == "claude_cli"
+        assert default == "codex_cli"
 
     def test_get_provider_by_name(self) -> None:
         """Test getting provider by name."""
-        provider_cls = AgentRegistry.get("claude_cli")
+        provider_cls = AgentRegistry.get("codex_cli")
         assert provider_cls is not None
         assert issubclass(provider_cls, AgentExecutor)
 
@@ -189,3 +191,21 @@ class TestFactoryFunctions:
         executor = create_executor(AgentRole.RESEARCHER, provider="claude_cli")
         assert isinstance(executor, AgentExecutor)
         assert executor.__class__.__name__ == "ClaudeCLIExecutor"
+
+    def test_create_executor_with_codex_cli(self) -> None:
+        """Test creating executor with codex_cli provider."""
+        executor = create_executor(AgentRole.RESEARCHER, provider="codex_cli")
+        assert isinstance(executor, AgentExecutor)
+        assert executor.__class__.__name__ == "CodexCLIExecutor"
+
+    def test_role_specific_provider_override(self) -> None:
+        """Test role-specific provider override via settings."""
+        os.environ["PLANNER_PROVIDER"] = "opencode"
+        reset_settings()
+
+        try:
+            executor = create_executor(AgentRole.PLANNER)
+            assert executor.__class__.__name__ == "OpenCodeExecutor"
+        finally:
+            os.environ.pop("PLANNER_PROVIDER", None)
+            reset_settings()

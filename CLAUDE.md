@@ -2,7 +2,7 @@
 
 ## 项目概述
 
-Deep Research 是一个多 Agent 深度研究系统，支持 Claude CLI 和 OpenCode 两种 Agent Provider。
+Deep Research 是一个多 Agent 深度研究系统，支持 Codex CLI 和 OpenCode 两种 Agent Provider（可选 Claude CLI）。
 
 ## 端口分配
 
@@ -16,13 +16,13 @@ Deep Research 是一个多 Agent 深度研究系统，支持 Claude CLI 和 Open
 
 | 角色 | 默认模型 | 用途 |
 |-----|--------|------|
-| Planner | `opus` | 分析问题，生成研究计划 |
-| Researcher | `sonnet` | 并行执行具体研究任务 |
-| Synthesizer | `opus` | 整合研究结果，生成报告 |
+| Planner | provider default | 分析问题，生成研究计划 |
+| Researcher | provider default | 并行执行具体研究任务 |
+| Synthesizer | provider default | 整合研究结果，生成报告 |
 
 ## 关键规范
 
-- **Agent Provider**：支持 `claude_cli` 和 `opencode`
+- **Agent Provider**：支持 `codex_cli`、`claude_cli` 和 `opencode`
 - **并行数量**：研究 Agent 数量 = 研究项数量，默认上限 10
 - **语言检测**：提示词包含 `Respond in the same language as the user's query`
 - **检查点**：每 60 秒保存，存储于 `data/checkpoints/`
@@ -51,7 +51,7 @@ Deep Research 是一个多 Agent 深度研究系统，支持 Claude CLI 和 Open
 ```
 src/deep_research/
 ├── core/agent/          # Agent 抽象层
-│   └── providers/       # Claude CLI, OpenCode 实现
+│   └── providers/       # Codex CLI, Claude CLI, OpenCode 实现
 ├── services/            # 编排器、会话管理
 ├── models/              # 数据模型
 ├── agents/              # Prompt 模板
